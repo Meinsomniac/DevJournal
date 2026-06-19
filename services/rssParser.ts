@@ -1,0 +1,283 @@
+import { XMLParser } from 'fast-xml-parser';
+import { ArticleInput } from '@/types';
+import { stripHtml, extractImageFromHtml } from '@/utils/html';
+import { FEED_SOURCES } from '@/constants/Feeds';
+import { calculateImportanceScore, categorizeArticle } from './ranking';
+import { getEnabledFeeds, getDisabledFeeds } from './db';
+
+const parser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: '',
+  parseTagValue: true,
+  trimValues: true,
+  isArray: (name) => ['item', 'entry'].includes(name),
+  processEntities: false,
+  htmlEntities: false,
+});
+
+interface RawFeedItem {
+  title?: string;
+  link?: string | { '@_href': string } | { href: string };
+  id?: string;
+  guid?: string;
+  pubDate?: string;
+  published?: string;
+  updated?: string;
+  'dc:date'?: string;
+  summary?: string;
+  description?: string;
+  content?: string;
+  'content:encoded'?: string;
+  'media:thumbnail'?: { '@_url': string } | { url: string } | string;
+  enclosure?: { '@_url': string; '@_type': string } | { url: string; type: string };
+  author?: { name?: string } | string;
+  category?: string | string[];
+}
+
+function extractLink(item: RawFeedItem): string | null {
+  // RSS 2.0: link is direct string
+  if (typeof item.link === 'string' && item.link) {
+    return item.link;
+  }
+
+  // Atom: link object with href
+  if (item.link && typeof item.link === 'object') {
+    if ('@_href' in item.link) return item.link['@_href'];
+    if ('href' in item.link) return item.link.href;
+  }
+
+  // Fallback to id or guid
+  if (item.id) return item.id;
+  if (typeof item.guid === 'string') return item.guid;
+
+  // Enclosure URL as last resort
+  if (item.enclosure) {
+    if ('@_url' in item.enclosure) return item.enclosure['@_url'];
+    if ('url' in item.enclosure) return item.enclosure.url;
+  }
+
+  return null;
+}
+
+function extractDate(item: RawFeedItem): number {
+  const dateStr = item.pubDate || item.published || item.updated || item['dc:date'];
+
+  if (!dateStr) return Date.now();
+
+  const parsed = new Date(dateStr).getTime();
+  return isNaN(parsed) ? Date.now() : parsed;
+}
+
+function extractSummary(item: RawFeedItem): string {
+  const raw = item.summary || item.description || item['content:encoded'] || item.content || '';
+  return stripHtml(raw).substring(0, 500);
+}
+
+function extractTitle(item: RawFeedItem): string {
+  const raw = item.title || 'Untitled';
+  return stripHtml(raw);
+}
+
+function extractImage(item: RawFeedItem): string | undefined {
+  // 1. media:thumbnail (common in RSS)
+  if (item['media:thumbnail']) {
+    const t = item['media:thumbnail'];
+    if (typeof t === 'string') return t;
+    if ('@_url' in t) return t['@_url'];
+    if ('url' in t) return t.url;
+  }
+
+  // 2. enclosure image
+  if (item.enclosure) {
+    const enc = item.enclosure;
+    const url = '@_url' in enc ? enc['@_url'] : enc.url;
+    const type = '@_type' in enc ? enc['@_type'] : enc.type;
+    if (url && type?.startsWith('image/')) return url;
+  }
+
+  // 3. Extract from content
+  const content = item['content:encoded'] || item.content || item.description || '';
+  return extractImageFromHtml(content);
+}
+
+function generateId(link: string, title: string, pubDate: number): string {
+  // Simple hash function for ID generation
+  const seed = link || `${title}-${pubDate}`;
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    const char = seed.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+const CUTOFF_STEP_DAYS = 7;
+const DEFAULT_MAX_ARTICLES = 20;
+
+export async function fetchAndParseFeed(
+  url: string,
+  sourceName: string,
+  category: string,
+  iconUri?: string,
+  maxArticles?: number,
+  keywords?: string[]
+): Promise<ArticleInput[]> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'TechPulse/1.0 (https://github.com/techpulse-app)',
+        'Accept': 'application/xml, application/rss+xml, application/atom+xml, text/xml, */*',
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const xml = await response.text();
+
+    if (!xml.includes('<') || xml.length < 50) {
+      console.warn(`[RSS] ${sourceName}: empty or invalid response (${xml.length} bytes)`);
+      return [];
+    }
+
+    const json = parser.parse(xml);
+
+    let items: RawFeedItem[] = [];
+
+    if (json.rss?.channel?.item) {
+      items = json.rss.channel.item;
+    } else if (json.feed?.entry) {
+      items = json.feed.entry;
+    } else if (json.channel?.item) {
+      items = json.channel.item;
+    } else if (json.rdf?.item) {
+      items = json.rdf.item;
+    } else if (json.items) {
+      items = json.items;
+    }
+
+    if (!Array.isArray(items)) {
+      items = [items].filter(Boolean);
+    }
+
+    // Parse all items into ArticleInput once
+    const now = Date.now();
+    const allArticles: ArticleInput[] = [];
+
+    for (const item of items) {
+      try {
+        const link = extractLink(item);
+        if (!link) continue;
+
+        const title = extractTitle(item);
+        const pubDate = extractDate(item);
+        const summary = extractSummary(item);
+        const imageUri = extractImage(item);
+
+        const id = generateId(link, title, pubDate);
+        const importanceScore = calculateImportanceScore(title, summary, sourceName);
+        const articleCategory = categorizeArticle(title, summary, sourceName);
+
+        allArticles.push({
+          id,
+          title,
+          link,
+          source_name: sourceName,
+          source_icon_uri: iconUri,
+          pub_date: pubDate,
+          fetched_at: now,
+          summary,
+          image_uri: imageUri,
+          importance_score: importanceScore,
+          category: articleCategory,
+        });
+      } catch (itemError) {
+        console.error(`Failed to parse item from ${sourceName}:`, itemError);
+      }
+    }
+
+    // Keyword filter: if keywords provided, only keep articles matching at least one
+    const relevantArticles = keywords && keywords.length > 0
+      ? allArticles.filter((a) => {
+          const text = `${a.title} ${a.summary}`.toLowerCase();
+          return keywords.some((kw) => text.includes(kw.toLowerCase()));
+        })
+      : allArticles;
+
+    if (keywords && keywords.length > 0 && relevantArticles.length < allArticles.length) {
+      console.log(`[RSS] ${sourceName}: keyword filter kept ${relevantArticles.length}/${allArticles.length} articles`);
+    }
+
+    // Cascade: try 7 days, then 14, then 21... until articles are found
+    const limit = maxArticles ?? DEFAULT_MAX_ARTICLES;
+    let cutoffDays = CUTOFF_STEP_DAYS;
+
+    while (cutoffDays <= 365) {
+      const cutoff = now - cutoffDays * 24 * 60 * 60 * 1000;
+      const filtered = relevantArticles
+        .filter((a) => a.pub_date >= cutoff)
+        .sort((a, b) => b.pub_date - a.pub_date)
+        .slice(0, limit);
+
+      if (filtered.length > 0) {
+        if (cutoffDays > CUTOFF_STEP_DAYS) {
+          console.log(`[RSS] ${sourceName}: no articles in ${CUTOFF_STEP_DAYS}d, found ${filtered.length} in ${cutoffDays}d`);
+        }
+        return filtered;
+      }
+
+      cutoffDays += CUTOFF_STEP_DAYS;
+    }
+
+    console.warn(`[RSS] ${sourceName}: no articles found within 365 days`);
+    return [];
+  } catch (error) {
+    console.error(`[RSS] Failed to fetch ${sourceName}:`, error);
+    return [];
+  }
+}
+
+export async function fetchAllFeeds(): Promise<ArticleInput[]> {
+  const enabledIds = await getEnabledFeeds();
+  const disabledIds = await getDisabledFeeds();
+
+  const activeSources = FEED_SOURCES.filter((source) => {
+    if (enabledIds.length === 0 && disabledIds.length === 0) {
+      return source.enabled;
+    }
+    if (disabledIds.includes(source.id)) return false;
+    if (enabledIds.includes(source.id)) return true;
+    return false;
+  });
+
+  const results = await Promise.allSettled(
+    activeSources.map(source =>
+      fetchAndParseFeed(source.url, source.name, source.category, source.icon, source.maxArticles, source.keywords)
+    )
+  );
+
+  const allArticles: ArticleInput[] = [];
+  let errors = 0;
+
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      allArticles.push(...result.value);
+    } else {
+      errors++;
+      console.error(`[RSS] Feed failed: ${activeSources[index].name}`, result.reason);
+    }
+  });
+
+  console.log(`[RSS] Fetched ${allArticles.length} articles from ${activeSources.length - errors}/${activeSources.length} feeds`);
+
+  return allArticles;
+}
