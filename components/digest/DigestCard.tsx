@@ -22,7 +22,7 @@ interface DigestCardProps {
   onBookmark: (id: string) => void;
 }
 
-export function DigestCard({ article, variant = 'full', onBookmark }: DigestCardProps) {
+export const DigestCard = React.memo(function DigestCard({ article, variant = 'full', onBookmark }: DigestCardProps) {
   const { colors, isDark } = useTheme();
   const router = useRouter();
   const iconUri = article.source_icon_uri ?? ICON_BY_NAME.get(article.source_name);
@@ -92,9 +92,6 @@ export function DigestCard({ article, variant = 'full', onBookmark }: DigestCard
         <ImportanceStars score={article.importance_score} size={12} color={colors.warning} />
         <View style={styles.headerRight}>
           <CategoryChip category={article.category} size="small" />
-          {article.is_bookmarked ? (
-            <Bookmark size={16} color={colors.warning} fill={colors.warning} />
-          ) : null}
         </View>
       </View>
 
@@ -152,7 +149,7 @@ export function DigestCard({ article, variant = 'full', onBookmark }: DigestCard
       </View>
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {

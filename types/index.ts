@@ -49,6 +49,16 @@ export interface FeedSource {
   maxArticles?: number;
 }
 
+export interface CustomFeed {
+  id: string;
+  name: string;
+  url: string;
+  rss_url: string;
+  category: ArticleCategory;
+  icon?: string;
+  added_at: number;
+}
+
 export interface UserPreferences {
   theme: 'system' | 'light' | 'dark';
   fontSize: 'small' | 'medium' | 'large';

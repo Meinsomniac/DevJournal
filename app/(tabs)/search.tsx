@@ -2,12 +2,12 @@ import React, { useState, useCallback } from 'react';
 import {
   View,
   StyleSheet,
-  FlatList,
   TextInput,
   Text,
   Pressable,
   Keyboard,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useTheme';
@@ -89,7 +89,7 @@ export default function SearchScreen() {
     performSearch(term);
   }, [performSearch]);
 
-  const renderResultItem = ({ item }: { item: SearchResult }) => (
+  const renderResultItem = useCallback(({ item }: { item: SearchResult }) => (
     <Pressable
       style={[styles.resultItem, { backgroundColor: colors.bgCard }]}
       onPress={() => handleArticlePress(item)}
@@ -129,7 +129,7 @@ export default function SearchScreen() {
       </View>
       <ArrowRight size={16} color={colors.textTertiary} style={styles.resultArrow} />
     </Pressable>
-  );
+  ), [colors, handleArticlePress]);
 
   const renderRecentSearches = () => (
     <View style={styles.recentSection}>
@@ -229,7 +229,7 @@ export default function SearchScreen() {
       )}
 
       {hasSearched && !searching && results.length > 0 && (
-        <FlatList
+        <FlashList
           data={results}
           keyExtractor={(item) => item.id}
           renderItem={renderResultItem}

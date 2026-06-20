@@ -1,9 +1,8 @@
 import { XMLParser } from 'fast-xml-parser';
 import { ArticleInput } from '@/types';
 import { stripHtml, extractImageFromHtml } from '@/utils/html';
-import { FEED_SOURCES } from '@/constants/Feeds';
 import { calculateImportanceScore, categorizeArticle } from './ranking';
-import { getEnabledFeeds, getDisabledFeeds } from './db';
+import { getEnabledFeeds, getDisabledFeeds, getCustomFeeds } from './db';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -247,21 +246,19 @@ export async function fetchAndParseFeed(
 }
 
 export async function fetchAllFeeds(): Promise<ArticleInput[]> {
+  const customFeeds = await getCustomFeeds();
   const enabledIds = await getEnabledFeeds();
   const disabledIds = await getDisabledFeeds();
 
-  const activeSources = FEED_SOURCES.filter((source) => {
-    if (enabledIds.length === 0 && disabledIds.length === 0) {
-      return source.enabled;
-    }
-    if (disabledIds.includes(source.id)) return false;
-    if (enabledIds.includes(source.id)) return true;
-    return false;
+  const activeSources = customFeeds.filter((feed) => {
+    if (disabledIds.includes(feed.id)) return false;
+    if (enabledIds.includes(feed.id)) return true;
+    return true;
   });
 
   const results = await Promise.allSettled(
     activeSources.map(source =>
-      fetchAndParseFeed(source.url, source.name, source.category, source.icon, source.maxArticles, source.keywords)
+      fetchAndParseFeed(source.rss_url, source.name, source.category, source.icon)
     )
   );
 

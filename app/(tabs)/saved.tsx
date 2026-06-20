@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   StyleSheet,
-  FlatList,
   Text,
   Pressable,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { FlashList } from '@shopify/flash-list';
+import { useRouter, useNavigation } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useTheme';
 import { Typography } from '@/constants/Typography';
@@ -24,12 +24,12 @@ export default function SavedScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const navigation = useNavigation();
 
   const [activeTab, setActiveTab] = useState<TabType>('bookmarks');
   const [bookmarks, setBookmarks] = useState<Article[]>([]);
   const [history, setHistory] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
-  const loadedRef = React.useRef(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -46,11 +46,12 @@ export default function SavedScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    if (loadedRef.current) return;
-    loadedRef.current = true;
-    loadData();
-  }, [loadData]);
+  React.useEffect(() => {
+    const init = async () => { await loadData(); };
+    init();
+    const unsubscribe = navigation.addListener('focus', loadData);
+    return unsubscribe;
+  }, [loadData, navigation]);
 
   const handleRemoveBookmark = useCallback(async (id: string) => {
     await deleteBookmark(id);
@@ -76,7 +77,7 @@ export default function SavedScreen() {
     return groups;
   }, [history, activeTab]);
 
-  const renderBookmarkItem = ({ item }: { item: Article }) => (
+  const renderBookmarkItem = useCallback(({ item }: { item: Article }) => (
     <Pressable
       style={[styles.card, { backgroundColor: colors.bgCard }]}
       onPress={() => handleOpenArticle(item)}
@@ -117,7 +118,7 @@ export default function SavedScreen() {
         </Pressable>
       </View>
     </Pressable>
-  );
+  ), [colors, handleOpenArticle, handleRemoveBookmark]);
 
   const renderHistorySection = () => {
     if (activeTab !== 'history') return null;
@@ -236,7 +237,7 @@ export default function SavedScreen() {
       )}
 
       {activeTab === 'bookmarks' && displayData.length > 0 && (
-        <FlatList
+        <FlashList
           data={displayData}
           keyExtractor={(item) => item.id}
           renderItem={renderBookmarkItem}
@@ -249,7 +250,7 @@ export default function SavedScreen() {
       )}
 
       {activeTab === 'history' && (
-        <FlatList
+        <FlashList
           data={[{ key: 'sections' }]}
           keyExtractor={() => 'sections'}
           renderItem={() => <>{renderHistorySection()}</>}

@@ -3,9 +3,9 @@ import {
   View,
   StyleSheet,
   RefreshControl,
-  FlatList,
   ActivityIndicator,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '@/context/AppContext';
@@ -84,7 +84,54 @@ export default function DigestScreen() {
     router.push('/settings');
   }, [router]);
 
-  // Render loading skeleton
+  const { breaking, regular, displayArticles } = React.useMemo(() => {
+    const b = articles.filter((a) => a.importance_score === 5);
+    const r = articles.filter((a) => a.importance_score < 5);
+    return {
+      breaking: b,
+      regular: r,
+      displayArticles: b.length > 0 && r.length > 0 ? [b[0], ...r] : articles,
+    };
+  }, [articles]);
+
+  const renderArticle = useCallback(({ item }: { item: Article }) => (
+    <DigestCard
+      article={item}
+      variant={compactMode ? 'compact' : item.importance_score >= 4 ? 'full' : 'compact'}
+      onBookmark={handleBookmark}
+    />
+  ), [compactMode, handleBookmark]);
+
+  const renderItem = useCallback(({ item, index }: { item: Article; index: number }) => {
+    if (index === 0 && breaking.length > 0) {
+      return (
+        <View>
+          <SectionHeader title="Breaking" breaking count={breaking.length} />
+          {breaking.map((article) => (
+            <DigestCard
+              key={article.id}
+              article={article}
+              variant="full"
+              onBookmark={handleBookmark}
+            />
+          ))}
+          {regular.length > 0 && (
+            <SectionHeader title="Latest Stories" count={regular.length} />
+          )}
+        </View>
+      );
+    }
+
+    return renderArticle({ item });
+  }, [breaking, regular, renderArticle, handleBookmark]);
+
+  const today = new Date();
+  const dateStr = today.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+  });
+
   if (loading) {
     return (
       <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
@@ -98,7 +145,6 @@ export default function DigestScreen() {
     );
   }
 
-  // Render empty state
   if (articles.length === 0) {
     return (
       <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
@@ -120,51 +166,6 @@ export default function DigestScreen() {
     );
   }
 
-  // Separate breaking news (score 5) from regular stories
-  const breaking = articles.filter((a) => a.importance_score === 5);
-  const regular = articles.filter((a) => a.importance_score < 5);
-
-  const renderArticle = ({ item }: { item: Article }) => (
-    <DigestCard
-      article={item}
-      variant={compactMode ? 'compact' : item.importance_score >= 4 ? 'full' : 'compact'}
-      onBookmark={handleBookmark}
-    />
-  );
-
-  const renderItem = ({ item, index }: { item: Article; index: number }) => {
-    // Add section headers
-    if (index === 0 && breaking.length > 0) {
-      return (
-        <View>
-          <SectionHeader title="Breaking" breaking count={breaking.length} />
-          {breaking.map((article) => (
-            <DigestCard
-              key={article.id}
-              article={article}
-              variant="full"
-              onBookmark={handleBookmark}
-            />
-          ))}
-          {regular.length > 0 && (
-            <SectionHeader title="Latest Stories" count={regular.length} />
-          )}
-        </View>
-      );
-    }
-
-    return renderArticle({ item });
-  };
-
-  const displayArticles = breaking.length > 0 && regular.length > 0 ? [breaking[0], ...regular] : articles;
-
-  const today = new Date();
-  const dateStr = today.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-  });
-
   return (
     <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
       <Header
@@ -179,7 +180,7 @@ export default function DigestScreen() {
         }
       />
 
-      <FlatList
+      <FlashList
         data={displayArticles}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}

@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import * as SQLite from 'expo-sqlite';
-import { Article, ArticleInput } from '@/types';
+import { Article, ArticleInput, CustomFeed } from '@/types';
 
 interface DatabaseInterface {
   saveArticles(articles: ArticleInput[]): Promise<number>;
@@ -23,6 +23,9 @@ interface DatabaseInterface {
   setFeedEnabled(id: string, enabled: boolean): Promise<void>;
   getEnabledFeeds(): Promise<string[]>;
   getDisabledFeeds(): Promise<string[]>;
+  addCustomFeed(feed: CustomFeed): Promise<void>;
+  removeCustomFeed(id: string): Promise<void>;
+  getCustomFeeds(): Promise<CustomFeed[]>;
   clearAllData(): Promise<void>;
   clearCache(): Promise<void>;
 }
@@ -68,6 +71,16 @@ class NativeDatabase implements DatabaseInterface {
       CREATE TABLE IF NOT EXISTS feed_preferences (
         feed_id TEXT PRIMARY KEY NOT NULL,
         enabled INTEGER NOT NULL DEFAULT 1
+      );
+
+      CREATE TABLE IF NOT EXISTS custom_feeds (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        url TEXT NOT NULL,
+        rss_url TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'General',
+        icon TEXT,
+        added_at INTEGER NOT NULL
       );
     `);
     return db;
@@ -258,6 +271,24 @@ class NativeDatabase implements DatabaseInterface {
     return rows.map(r => r.feed_id);
   }
 
+  async addCustomFeed(feed: CustomFeed): Promise<void> {
+    const db = await this.getDb();
+    await db.runAsync(
+      'INSERT OR REPLACE INTO custom_feeds (id, name, url, rss_url, category, icon, added_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [feed.id, feed.name, feed.url, feed.rss_url, feed.category, feed.icon ?? null, feed.added_at]
+    );
+  }
+
+  async removeCustomFeed(id: string): Promise<void> {
+    const db = await this.getDb();
+    await db.runAsync('DELETE FROM custom_feeds WHERE id = ?', [id]);
+  }
+
+  async getCustomFeeds(): Promise<CustomFeed[]> {
+    const db = await this.getDb();
+    return db.getAllAsync<CustomFeed>('SELECT * FROM custom_feeds ORDER BY added_at DESC');
+  }
+
   async clearAllData(): Promise<void> {
     const db = await this.getDb();
     await db.withTransactionAsync(async () => {
@@ -279,6 +310,7 @@ class WebDatabase implements DatabaseInterface {
   private STORAGE_KEY = 'techpulse_articles';
   private SETTINGS_KEY = 'techpulse_settings';
   private FEEDS_KEY = 'techpulse_feeds';
+  private CUSTOM_FEEDS_KEY = 'techpulse_custom_feeds';
 
   private getArticles(): Article[] {
     try {
@@ -424,9 +456,33 @@ class WebDatabase implements DatabaseInterface {
     return Object.entries(feeds).filter(([, v]) => !v).map(([k]) => k);
   }
 
+  async addCustomFeed(feed: CustomFeed): Promise<void> {
+    const feeds = this.getCustomFeedsSync();
+    const idx = feeds.findIndex(f => f.id === feed.id);
+    if (idx >= 0) feeds[idx] = feed;
+    else feeds.push(feed);
+    localStorage.setItem(this.CUSTOM_FEEDS_KEY, JSON.stringify(feeds));
+  }
+
+  async removeCustomFeed(id: string): Promise<void> {
+    const feeds = this.getCustomFeedsSync().filter(f => f.id !== id);
+    localStorage.setItem(this.CUSTOM_FEEDS_KEY, JSON.stringify(feeds));
+  }
+
+  async getCustomFeeds(): Promise<CustomFeed[]> {
+    return this.getCustomFeedsSync();
+  }
+
+  private getCustomFeedsSync(): CustomFeed[] {
+    try {
+      return JSON.parse(localStorage.getItem(this.CUSTOM_FEEDS_KEY) || '[]');
+    } catch { return []; }
+  }
+
   async clearAllData(): Promise<void> {
     localStorage.removeItem(this.STORAGE_KEY);
     localStorage.removeItem(this.SETTINGS_KEY);
+    localStorage.removeItem(this.CUSTOM_FEEDS_KEY);
   }
 
   async clearCache(): Promise<void> {
@@ -532,10 +588,40 @@ export function getDisabledFeeds(): Promise<string[]> {
   return getDb().getDisabledFeeds();
 }
 
+export function addCustomFeed(feed: CustomFeed): Promise<void> {
+  return getDb().addCustomFeed(feed);
+}
+
+export function removeCustomFeed(id: string): Promise<void> {
+  return getDb().removeCustomFeed(id);
+}
+
+export function getCustomFeeds(): Promise<CustomFeed[]> {
+  return getDb().getCustomFeeds();
+}
+
 export function clearAllData(): Promise<void> {
   return getDb().clearAllData();
 }
 
 export function clearCache(): Promise<void> {
   return getDb().clearCache();
+}
+
+export async function seedCustomFeedsIfNeeded(): Promise<void> {
+  const existing = await getCustomFeeds();
+  if (existing.length > 0) return;
+
+  const { FEED_SOURCES } = await import('@/constants/Feeds');
+  for (const source of FEED_SOURCES) {
+    await addCustomFeed({
+      id: source.id,
+      name: source.name,
+      url: source.url,
+      rss_url: source.url,
+      category: source.category,
+      icon: source.icon,
+      added_at: Date.now(),
+    });
+  }
 }
