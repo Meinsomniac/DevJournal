@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import * as SQLite from 'expo-sqlite';
-import { Article, ArticleInput, CustomFeed } from '@/types';
+import { Article, ArticleInput, CustomFeed, FeedSource } from '@/types';
 
 interface DatabaseInterface {
   saveArticles(articles: ArticleInput[]): Promise<number>;
@@ -28,6 +28,9 @@ interface DatabaseInterface {
   getCustomFeeds(): Promise<CustomFeed[]>;
   clearAllData(): Promise<void>;
   clearCache(): Promise<void>;
+  getArticlesBySource(sourceName: string, limit?: number): Promise<Article[]>;
+  searchArticlesBySource(query: string, sourceName: string, limit?: number): Promise<Article[]>;
+  getEnabledFeedSources(): Promise<FeedSource[]>;
 }
 
 // ─── Native SQLite implementation ────────────────────────────────────────────
@@ -141,6 +144,44 @@ class NativeDatabase implements DatabaseInterface {
       `SELECT * FROM articles WHERE category = ? ORDER BY pub_date DESC LIMIT ? OFFSET ?`,
       [category, limit, offset]
     );
+  }
+
+  async getArticlesBySource(sourceName: string, limit = 50): Promise<Article[]> {
+    const db = await this.getDb();
+    const breaking = await db.getAllAsync<Article>(
+      `SELECT * FROM articles WHERE source_name = ? AND importance_score = 5 ORDER BY pub_date DESC LIMIT 10`,
+      [sourceName]
+    );
+    const remaining = limit - breaking.length;
+    const regular = await db.getAllAsync<Article>(
+      `SELECT * FROM articles WHERE source_name = ? AND importance_score < 5 ORDER BY importance_score DESC, pub_date DESC LIMIT ?`,
+      [sourceName, remaining]
+    );
+    return [...breaking, ...regular];
+  }
+
+  async searchArticlesBySource(query: string, sourceName: string, limit = 50): Promise<Article[]> {
+    const db = await this.getDb();
+    const pattern = `%${query}%`;
+    return db.getAllAsync<Article>(
+      `SELECT * FROM articles WHERE source_name = ? AND (title LIKE ? OR summary LIKE ?) ORDER BY pub_date DESC LIMIT ?`,
+      [sourceName, pattern, pattern, limit]
+    );
+  }
+
+  async getEnabledFeedSources(): Promise<FeedSource[]> {
+    const db = await this.getDb();
+    const allPrefs = await db.getAllAsync<{ feed_id: string; enabled: number }>(
+      'SELECT feed_id, enabled FROM feed_preferences'
+    );
+    const { FEED_SOURCES } = await import('@/constants/Feeds');
+
+    if (allPrefs.length === 0) return FEED_SOURCES;
+
+    const enabledIds = new Set(
+      allPrefs.filter(r => r.enabled === 1).map(r => r.feed_id)
+    );
+    return FEED_SOURCES.filter(source => enabledIds.has(source.id));
   }
 
   async getBookmarks(): Promise<Article[]> {
@@ -362,6 +403,34 @@ class WebDatabase implements DatabaseInterface {
       .slice(offset, offset + limit);
   }
 
+  async getArticlesBySource(sourceName: string, limit = 50): Promise<Article[]> {
+    const articles = this.getArticles().filter(a => a.source_name === sourceName);
+    const breaking = articles.filter(a => a.importance_score === 5).slice(0, 10);
+    const regular = articles
+      .filter(a => a.importance_score < 5)
+      .sort((a, b) => b.importance_score - a.importance_score || b.pub_date - a.pub_date)
+      .slice(0, limit - breaking.length);
+    return [...breaking, ...regular];
+  }
+
+  async searchArticlesBySource(query: string, sourceName: string, limit = 50): Promise<Article[]> {
+    const q = query.toLowerCase();
+    return this.getArticles()
+      .filter(a => a.source_name === sourceName && (a.title.toLowerCase().includes(q) || a.summary?.toLowerCase().includes(q)))
+      .slice(0, limit);
+  }
+
+  async getEnabledFeedSources(): Promise<FeedSource[]> {
+    const { FEED_SOURCES } = await import('@/constants/Feeds');
+    const feedsJson = localStorage.getItem(this.FEEDS_KEY);
+    
+    // No preferences set yet — treat all feeds as available
+    if (!feedsJson || feedsJson === '{}') return FEED_SOURCES;
+
+    const feeds = JSON.parse(feedsJson) as Record<string, boolean>;
+    return FEED_SOURCES.filter(source => feeds[source.id] === true);
+  }
+
   async getBookmarks(): Promise<Article[]> {
     return this.getArticles()
       .filter(a => a.is_bookmarked)
@@ -522,6 +591,18 @@ export function getDigestFeed(limit = 50): Promise<Article[]> {
 
 export function getArticlesByCategory(category: string, limit = 50, offset = 0): Promise<Article[]> {
   return getDb().getArticlesByCategory(category, limit, offset);
+}
+
+export function getArticlesBySource(sourceName: string, limit = 50): Promise<Article[]> {
+  return getDb().getArticlesBySource(sourceName, limit);
+}
+
+export function searchArticlesBySource(query: string, sourceName: string, limit = 50): Promise<Article[]> {
+  return getDb().searchArticlesBySource(query, sourceName, limit);
+}
+
+export function getEnabledFeedSources(): Promise<FeedSource[]> {
+  return getDb().getEnabledFeedSources();
 }
 
 export function getBookmarks(): Promise<Article[]> {

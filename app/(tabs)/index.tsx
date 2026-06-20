@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -6,58 +6,66 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
-import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '@/context/AppContext';
 import { Spacing } from '@/constants/Spacing';
 import { Article } from '@/types';
-import { getDigestFeed, toggleBookmark, getUnreadCount, saveArticles } from '@/services/db';
+import { getDigestFeed, searchArticles, toggleBookmark, getUnreadCount, saveArticles } from '@/services/db';
 import { fetchAllFeeds } from '@/services/rssParser';
 import { deduplicateByLink } from '@/services/ranking';
-import { Header } from '@/components/common/Header';
-import { DigestCard } from '@/components/digest/DigestCard';
-import { SectionHeader } from '@/components/digest/SectionHeader';
+import { SearchBar } from '@/components/common';
+import { DigestCard, SectionHeader } from '@/components/digest';
 import { ArticleSkeleton, EmptyState, Button } from '@/components/ui';
 import { Newspaper, RefreshCw } from 'lucide-react-native';
 
 export default function DigestScreen() {
   const { colors, compactMode, dataVersion } = useApp();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
 
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [fetching, setFetching] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const loadedRef = React.useRef(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (searchText: string) => {
     try {
-      const feed = await getDigestFeed(50);
-      setArticles(feed);
+      if (searchText.trim()) {
+        setSearching(true);
+        const results = await searchArticles(searchText.trim(), 50);
+        setArticles(results);
+      } else {
+        const feed = await getDigestFeed(50);
+        setArticles(feed);
+      }
       const count = await getUnreadCount();
       setUnreadCount(count);
     } catch (error) {
       console.error('Failed to load articles:', error);
     } finally {
       setLoading(false);
+      setSearching(false);
     }
   }, []);
 
   useEffect(() => {
-    if (!loadedRef.current) {
-      loadedRef.current = true;
-    }
-    const init = async () => { await loadData(); };
-    init();
-  }, [loadData, dataVersion]);
+    loadData(searchQuery);
+  }, [dataVersion]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadData();
+    await loadData(searchQuery);
     setRefreshing(false);
-  }, [loadData]);
+  }, [loadData, searchQuery]);
 
   const fetchNews = useCallback(async () => {
     if (fetching) return;
@@ -67,22 +75,31 @@ export default function DigestScreen() {
       const unique = deduplicateByLink(rawArticles);
       const saved = await saveArticles(unique);
       console.log(`Saved ${saved} new articles`);
-      await loadData();
+      await loadData(searchQuery);
     } catch (error) {
       console.error('Failed to fetch news:', error);
     } finally {
       setFetching(false);
     }
-  }, [fetching, loadData]);
+  }, [fetching, loadData, searchQuery]);
+
+  const handleSearchTextChange = useCallback((text: string) => {
+    setSearchQuery(text);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      loadData(text);
+    }, 300);
+  }, [loadData]);
+
+  const handleSearchSubmit = useCallback((text: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    loadData(text);
+  }, [loadData]);
 
   const handleBookmark = useCallback(async (id: string) => {
     await toggleBookmark(id);
-    await loadData();
-  }, [loadData]);
-
-  const handleSettings = useCallback(() => {
-    router.push('/settings');
-  }, [router]);
+    await loadData(searchQuery);
+  }, [loadData, searchQuery]);
 
   const { breaking, regular, displayArticles } = React.useMemo(() => {
     const b = articles.filter((a) => a.importance_score === 5);
@@ -121,22 +138,13 @@ export default function DigestScreen() {
         </View>
       );
     }
-
     return renderArticle({ item });
   }, [breaking, regular, renderArticle, handleBookmark]);
 
-  const today = new Date();
-  const dateStr = today.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-  });
-
-  if (loading) {
+  if (loading && articles.length === 0) {
     return (
       <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
-        <Header title="Tech Pulse" showSettings onSettingsPress={handleSettings} />
-        <View style={styles.content}>
+        <View style={[styles.content, { paddingTop: insets.top }]}>
           {[1, 2, 3].map((i) => (
             <ArticleSkeleton key={i} />
           ))}
@@ -145,10 +153,24 @@ export default function DigestScreen() {
     );
   }
 
-  if (articles.length === 0) {
-    return (
-      <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
-        <Header title="Tech Pulse" showSettings onSettingsPress={handleSettings} />
+  const isEmpty = articles.length === 0 && !searching && !loading;
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.bgPrimary, paddingTop: insets.top }]}>
+      <SearchBar
+        value={searchQuery}
+        onChangeText={handleSearchTextChange}
+        onSubmitEditing={handleSearchSubmit}
+        placeholder="Search articles..."
+      />
+
+      {searching && (
+        <View style={styles.searchingIndicator}>
+          <ActivityIndicator size="small" color={colors.brandPrimary} />
+        </View>
+      )}
+
+      {isEmpty ? (
         <EmptyState
           icon={Newspaper}
           title="No news yet"
@@ -162,42 +184,26 @@ export default function DigestScreen() {
             />
           }
         />
-      </View>
-    );
-  }
-
-  return (
-    <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
-      <Header
-        title="Tech Pulse"
-        subtitle={`${dateStr} · ${articles.length} stories${unreadCount > 0 ? ` · ${unreadCount} unread` : ''}`}
-        showSettings
-        onSettingsPress={handleSettings}
-        rightContent={
-          fetching ? (
-            <ActivityIndicator size="small" color={colors.brandPrimary} />
-          ) : undefined
-        }
-      />
-
-      <FlashList
-        data={displayArticles}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        contentContainerStyle={[
-          styles.listContent,
-          { paddingBottom: insets.bottom + Spacing.xxl },
-        ]}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.brandPrimary}
-            colors={[colors.brandPrimary]}
-          />
-        }
-      />
+      ) : (
+        <FlashList
+          data={displayArticles}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingBottom: insets.bottom + Spacing.xxl },
+          ]}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={colors.brandPrimary}
+              colors={[colors.brandPrimary]}
+            />
+          }
+        />
+      )}
     </View>
   );
 }
@@ -211,6 +217,11 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
   },
   listContent: {
-    padding: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.sm,
+  },
+  searchingIndicator: {
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
   },
 });

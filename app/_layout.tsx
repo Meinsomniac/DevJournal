@@ -22,18 +22,6 @@ function ThemedLayout() {
             },
           }}
         />
-        <Stack.Screen
-          name="settings"
-          options={{
-            headerShown: true,
-            title: 'Settings',
-            headerBackTitle: 'Back',
-            headerTintColor: colors.textPrimary,
-            headerStyle: {
-              backgroundColor: colors.bgPrimary,
-            },
-          }}
-        />
         <Stack.Screen name="+not-found" />
       </Stack>
       <StatusBar style={isDark ? 'light' : 'dark'} />

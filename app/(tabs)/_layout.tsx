@@ -1,6 +1,6 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { Home, Layers, Bookmark, Search } from 'lucide-react-native';
+import { Home, Layers, Bookmark, Settings } from 'lucide-react-native';
 import { useApp } from '@/context/AppContext';
 import { Spacing } from '@/constants/Spacing';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -50,10 +50,10 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="search"
+        name="settings"
         options={{
-          title: 'Search',
-          tabBarIcon: ({ color, size }) => <Search size={size} color={color} />,
+          title: 'Settings',
+          tabBarIcon: ({ color, size }) => <Settings size={size} color={color} />,
         }}
       />
     </Tabs>
