@@ -250,10 +250,11 @@ export async function fetchAllFeeds(): Promise<ArticleInput[]> {
   const enabledIds = await getEnabledFeeds();
   const disabledIds = await getDisabledFeeds();
 
+  const hasPreferences = enabledIds.length > 0 || disabledIds.length > 0;
+
   const activeSources = customFeeds.filter((feed) => {
-    if (disabledIds.includes(feed.id)) return false;
-    if (enabledIds.includes(feed.id)) return true;
-    return true;
+    if (!hasPreferences) return true;
+    return enabledIds.includes(feed.id);
   });
 
   const results = await Promise.allSettled(

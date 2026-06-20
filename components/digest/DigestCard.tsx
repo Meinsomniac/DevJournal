@@ -51,7 +51,16 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
           <Image source={{ uri: article.image_uri }} style={styles.compactImage} />
         )}
         <View style={styles.compactContent}>
-          <ImportanceStars score={article.importance_score} size={10} />
+          <View style={styles.compactTop}>
+            <ImportanceStars score={article.importance_score} size={10} />
+            {article.importance_score === 5 && (
+              <View style={[styles.breakingBadgeSmall, { backgroundColor: colors.error + '20' }]}>
+                <Text style={[Typography.labelSmall, { color: colors.error, fontSize: 9, fontWeight: '700' }]}>
+                  Breaking
+                </Text>
+              </View>
+            )}
+          </View>
           <Text
             style={[Typography.titleSmall, { color: colors.textPrimary }]}
             numberOfLines={2}
@@ -89,7 +98,16 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
       ]}
     >
       <View style={styles.header}>
-        <ImportanceStars score={article.importance_score} size={12} color={colors.warning} />
+        <View style={styles.headerLeft}>
+          <ImportanceStars score={article.importance_score} size={12} color={colors.warning} />
+          {article.importance_score === 5 && (
+            <View style={[styles.breakingBadge, { backgroundColor: colors.error + '20' }]}>
+              <Text style={[Typography.labelSmall, { color: colors.error, fontWeight: '700' }]}>
+                Breaking
+              </Text>
+            </View>
+          )}
+        </View>
         <View style={styles.headerRight}>
           <CategoryChip category={article.category} size="small" />
         </View>
@@ -174,6 +192,26 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: Spacing.sm,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  breakingBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.sm,
+  },
+  breakingBadgeSmall: {
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: BorderRadius.sm,
+  },
+  compactTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
   },
   headerRight: {
     flexDirection: 'row',

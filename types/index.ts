@@ -72,6 +72,22 @@ export interface UserPreferences {
   enabledSources: string[];
 }
 
+export interface FilterState {
+  categories: ArticleCategory[];
+  sourceNames: string[];
+  minRating: number;
+  datePreset: '24h' | '7d' | '30d' | null;
+  sortOrder: 'newest' | 'oldest';
+}
+
+export const DEFAULT_FILTER: FilterState = {
+  categories: [],
+  sourceNames: [],
+  minRating: 0,
+  datePreset: null,
+  sortOrder: 'newest',
+};
+
 export const DEFAULT_PREFERENCES: UserPreferences = {
   theme: 'system',
   fontSize: 'medium',

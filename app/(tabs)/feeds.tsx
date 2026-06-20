@@ -10,6 +10,7 @@ import {
 import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useTheme';
+import { useApp } from '@/context/AppContext';
 import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { CustomFeed } from '@/types';
@@ -132,6 +133,7 @@ type SectionData =
 
 export default function FeedsScreen() {
   const { colors } = useTheme();
+  const { bumpDataVersion } = useApp();
   const insets = useSafeAreaInsets();
   const [enabledFeeds, setEnabledFeedsState] = useState<Set<string>>(new Set());
   const [customFeeds, setCustomFeeds] = useState<CustomFeed[]>([]);
@@ -170,7 +172,16 @@ export default function FeedsScreen() {
       return next;
     });
     await setFeedEnabled(id, enabled);
-  }, []);
+    bumpDataVersion();
+  }, [bumpDataVersion]);
+
+  const handleToggleAll = useCallback(async (enable: boolean) => {
+    for (const feed of BUILTIN_FEEDS) {
+      await setFeedEnabled(feed.id, enable);
+    }
+    setEnabledFeedsState(new Set(enable ? BUILTIN_FEEDS.map(f => f.id) : []));
+    bumpDataVersion();
+  }, [bumpDataVersion]);
 
   const handleDelete = useCallback((id: string, name: string) => {
     Alert.alert(
@@ -260,13 +271,21 @@ export default function FeedsScreen() {
         // }
       />
 
-      <View style={styles.sectionLabel}>
-        <Text style={[Typography.headlineSmall, { color: colors.textPrimary }]}>
-          Built-in Sources
-        </Text>
-        <Text style={[Typography.labelMedium, { color: colors.textTertiary }]}>
-          {builtinFeeds.length}
-        </Text>
+      <View style={[styles.disableAllRow, { borderColor: colors.borderLight }]}>
+        <View>
+          <Text style={[Typography.titleMedium, { color: colors.textPrimary }]}>
+            All Sources
+          </Text>
+          <Text style={[Typography.labelSmall, { color: colors.textTertiary }]}>
+            {enabledFeeds.size} of {builtinFeeds.length} enabled
+          </Text>
+        </View>
+        <Switch
+          value={enabledFeeds.size === builtinFeeds.length}
+          onValueChange={handleToggleAll}
+          trackColor={{ false: colors.borderMedium, true: colors.brandPrimary + '50' }}
+          thumbColor={enabledFeeds.size === builtinFeeds.length ? colors.brandPrimary : colors.textTertiary}
+        />
       </View>
 
       <FlashList
@@ -327,6 +346,15 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     marginHorizontal: Spacing.lg,
     marginTop: Spacing.sm,
+  },
+  disableAllRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.sm,
   },
   feedInfo: {
     flex: 1,

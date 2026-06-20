@@ -3,13 +3,15 @@ import { View, StyleSheet, TextInput, Pressable } from 'react-native';
 import { useTheme } from '@/hooks/useTheme';
 import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
-import { Search, X } from 'lucide-react-native';
+import { Search, X, SlidersHorizontal } from 'lucide-react-native';
 
 interface SearchBarProps {
   value: string;
   onChangeText: (text: string) => void;
   onSubmitEditing?: (text: string) => void;
   onClear?: () => void;
+  onFilterPress?: () => void;
+  filterActive?: boolean;
   placeholder?: string;
   autoFocus?: boolean;
 }
@@ -19,6 +21,8 @@ export function SearchBar({
   onChangeText,
   onSubmitEditing,
   onClear,
+  onFilterPress,
+  filterActive = false,
   placeholder = 'Search articles...',
   autoFocus = false,
 }: SearchBarProps) {
@@ -57,6 +61,9 @@ export function SearchBar({
           autoCorrect={false}
           autoCapitalize="none"
         />
+        <Pressable onPress={onFilterPress} style={styles.filterButton} accessibilityLabel="Open filters">
+          <SlidersHorizontal size={20} color={filterActive ? colors.brandPrimary : colors.textTertiary} />
+        </Pressable>
         {value.length > 0 && (
           <Pressable onPress={handleClear} style={styles.clearButton} accessibilityLabel="Clear search">
             <X size={20} color={colors.textTertiary} />
@@ -84,6 +91,9 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     paddingVertical: Spacing.xs,
+  },
+  filterButton: {
+    padding: Spacing.xs,
   },
   clearButton: {
     padding: Spacing.xs,

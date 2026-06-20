@@ -1,11 +1,11 @@
 import { Platform } from 'react-native';
 import * as SQLite from 'expo-sqlite';
-import { Article, ArticleInput, CustomFeed, FeedSource } from '@/types';
+import { Article, ArticleInput, CustomFeed, FeedSource, FilterState } from '@/types';
 
 interface DatabaseInterface {
   saveArticles(articles: ArticleInput[]): Promise<number>;
   pruneOldArticles(): Promise<number>;
-  getDigestFeed(limit?: number): Promise<Article[]>;
+  getDigestFeed(limit?: number, offset?: number, sortOrder?: 'newest' | 'oldest'): Promise<Article[]>;
   getArticlesByCategory(category: string, limit?: number, offset?: number): Promise<Article[]>;
   getBookmarks(): Promise<Article[]>;
   getHistory(limit?: number): Promise<Article[]>;
@@ -31,6 +31,7 @@ interface DatabaseInterface {
   getArticlesBySource(sourceName: string, limit?: number): Promise<Article[]>;
   searchArticlesBySource(query: string, sourceName: string, limit?: number): Promise<Article[]>;
   getEnabledFeedSources(): Promise<FeedSource[]>;
+  getFilteredArticles(filters: FilterState, searchText?: string, limit?: number, offset?: number): Promise<Article[]>;
 }
 
 // ─── Native SQLite implementation ────────────────────────────────────────────
@@ -125,17 +126,43 @@ class NativeDatabase implements DatabaseInterface {
     return result.changes;
   }
 
-  async getDigestFeed(limit = 50): Promise<Article[]> {
+  async getDigestFeed(limit = 50, offset = 0, sortOrder: 'newest' | 'oldest' = 'newest'): Promise<Article[]> {
     const db = await this.getDb();
-    const breaking = await db.getAllAsync<Article>(
-      `SELECT * FROM articles WHERE importance_score = 5 ORDER BY pub_date DESC LIMIT 10`
+    const { names: enabledNames, hasPrefs } = await this.getEnabledSourceNames();
+    const dir = sortOrder === 'oldest' ? 'ASC' : 'DESC';
+
+    if (hasPrefs && enabledNames.length === 0) return [];
+
+    if (enabledNames.length > 0) {
+      const placeholders = enabledNames.map(() => '?').join(',');
+      return db.getAllAsync<Article>(
+        `SELECT * FROM articles WHERE source_name IN (${placeholders}) ORDER BY pub_date ${dir} LIMIT ? OFFSET ?`,
+        [...enabledNames, limit, offset]
+      );
+    }
+
+    return db.getAllAsync<Article>(
+      `SELECT * FROM articles ORDER BY pub_date ${dir} LIMIT ? OFFSET ?`,
+      [limit, offset]
     );
-    const remaining = limit - breaking.length;
-    const regular = await db.getAllAsync<Article>(
-      `SELECT * FROM articles WHERE importance_score < 5 ORDER BY importance_score DESC, pub_date DESC LIMIT ?`,
-      [remaining]
+  }
+
+  private async getEnabledSourceNames(): Promise<{ names: string[]; hasPrefs: boolean }> {
+    const db = await this.getDb();
+    const allPrefs = await db.getAllAsync<{ feed_id: string; enabled: number }>(
+      'SELECT feed_id, enabled FROM feed_preferences'
     );
-    return [...breaking, ...regular];
+
+    if (allPrefs.length === 0) return { names: [], hasPrefs: false };
+
+    const enabledIds = new Set(
+      allPrefs.filter(r => r.enabled === 1).map(r => r.feed_id)
+    );
+    const { FEED_SOURCES } = await import('@/constants/Feeds');
+    const names = FEED_SOURCES
+      .filter(s => enabledIds.has(s.id))
+      .map(s => s.name);
+    return { names, hasPrefs: true };
   }
 
   async getArticlesByCategory(category: string, limit = 50, offset = 0): Promise<Article[]> {
@@ -182,6 +209,61 @@ class NativeDatabase implements DatabaseInterface {
       allPrefs.filter(r => r.enabled === 1).map(r => r.feed_id)
     );
     return FEED_SOURCES.filter(source => enabledIds.has(source.id));
+  }
+
+  async getFilteredArticles(filters: FilterState, searchText?: string, limit = 50, offset = 0): Promise<Article[]> {
+    const db = await this.getDb();
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    const { names: enabledNames, hasPrefs } = await this.getEnabledSourceNames();
+    if (hasPrefs && enabledNames.length === 0) return [];
+    if (enabledNames.length > 0) {
+      conditions.push(`source_name IN (${enabledNames.map(() => '?').join(',')})`);
+      params.push(...enabledNames);
+    }
+
+    if (searchText?.trim()) {
+      const pattern = `%${searchText.trim()}%`;
+      conditions.push('(title LIKE ? OR summary LIKE ?)');
+      params.push(pattern, pattern);
+    }
+
+    if (filters.categories.length > 0) {
+      conditions.push(`category IN (${filters.categories.map(() => '?').join(',')})`);
+      params.push(...filters.categories);
+    }
+
+    if (filters.sourceNames.length > 0) {
+      conditions.push(`source_name IN (${filters.sourceNames.map(() => '?').join(',')})`);
+      params.push(...filters.sourceNames);
+    }
+
+    if (filters.minRating > 1) {
+      conditions.push('importance_score >= ?');
+      params.push(filters.minRating);
+    }
+
+    if (filters.datePreset) {
+      const now = Date.now();
+      let cutoff: number;
+      switch (filters.datePreset) {
+        case '24h': cutoff = now - 86400000; break;
+        case '7d': cutoff = now - 604800000; break;
+        case '30d': cutoff = now - 2592000000; break;
+      }
+      conditions.push('pub_date >= ?');
+      params.push(cutoff);
+    }
+
+    if (conditions.length === 0) return this.getDigestFeed(limit, offset, filters.sortOrder);
+
+    const whereClause = conditions.join(' AND ');
+    const dir = filters.sortOrder === 'oldest' ? 'ASC' : 'DESC';
+    return db.getAllAsync<Article>(
+      `SELECT * FROM articles WHERE ${whereClause} ORDER BY pub_date ${dir} LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
   }
 
   async getBookmarks(): Promise<Article[]> {
@@ -387,13 +469,28 @@ class WebDatabase implements DatabaseInterface {
     return before - filtered.length;
   }
 
-  async getDigestFeed(limit = 50): Promise<Article[]> {
-    const articles = this.getArticles();
-    const breaking = articles.filter(a => a.importance_score === 5).slice(0, 10);
-    const regular = articles.filter(a => a.importance_score < 5)
-      .sort((a, b) => b.importance_score - a.importance_score || b.pub_date - a.pub_date)
-      .slice(0, limit - breaking.length);
-    return [...breaking, ...regular];
+  async getDigestFeed(limit = 50, offset = 0, sortOrder: 'newest' | 'oldest' = 'newest'): Promise<Article[]> {
+    const { names: enabledNames, hasPrefs } = await this.getEnabledSourceNamesWeb();
+    if (hasPrefs && enabledNames.length === 0) return [];
+    let articles = this.getArticles();
+    if (enabledNames.length > 0) {
+      const set = new Set(enabledNames);
+      articles = articles.filter(a => set.has(a.source_name));
+    }
+    const dir = sortOrder === 'oldest' ? 1 : -1;
+    return articles
+      .sort((a, b) => dir * (a.pub_date - b.pub_date))
+      .slice(offset, offset + limit);
+  }
+
+  private async getEnabledSourceNamesWeb(): Promise<{ names: string[]; hasPrefs: boolean }> {
+    const feedsJson = localStorage.getItem(this.FEEDS_KEY);
+    if (!feedsJson || feedsJson === '{}') return { names: [], hasPrefs: false };
+    const feeds = JSON.parse(feedsJson) as Record<string, boolean>;
+    const enabledIds = new Set(Object.entries(feeds).filter(([, v]) => v).map(([k]) => k));
+    const { FEED_SOURCES } = await import('@/constants/Feeds');
+    const names = FEED_SOURCES.filter(s => enabledIds.has(s.id)).map(s => s.name);
+    return { names, hasPrefs: true };
   }
 
   async getArticlesByCategory(category: string, limit = 50, offset = 0): Promise<Article[]> {
@@ -429,6 +526,54 @@ class WebDatabase implements DatabaseInterface {
 
     const feeds = JSON.parse(feedsJson) as Record<string, boolean>;
     return FEED_SOURCES.filter(source => feeds[source.id] === true);
+  }
+
+  async getFilteredArticles(filters: FilterState, searchText?: string, limit = 50, offset = 0): Promise<Article[]> {
+    let articles = this.getArticles();
+
+    const { names: enabledNames, hasPrefs } = await this.getEnabledSourceNamesWeb();
+    if (hasPrefs && enabledNames.length === 0) return [];
+    if (enabledNames.length > 0) {
+      const set = new Set(enabledNames);
+      articles = articles.filter(a => set.has(a.source_name));
+    }
+
+    if (searchText?.trim()) {
+      const q = searchText.trim().toLowerCase();
+      articles = articles.filter(a =>
+        a.title.toLowerCase().includes(q) || a.summary?.toLowerCase().includes(q)
+      );
+    }
+
+    if (filters.categories.length > 0) {
+      const catSet = new Set(filters.categories);
+      articles = articles.filter(a => catSet.has(a.category));
+    }
+
+    if (filters.sourceNames.length > 0) {
+      const srcSet = new Set(filters.sourceNames);
+      articles = articles.filter(a => srcSet.has(a.source_name));
+    }
+
+    if (filters.minRating > 1) {
+      articles = articles.filter(a => a.importance_score >= filters.minRating);
+    }
+
+    if (filters.datePreset) {
+      const now = Date.now();
+      let cutoff: number;
+      switch (filters.datePreset) {
+        case '24h': cutoff = now - 86400000; break;
+        case '7d': cutoff = now - 604800000; break;
+        case '30d': cutoff = now - 2592000000; break;
+      }
+      articles = articles.filter(a => a.pub_date >= cutoff);
+    }
+
+    const dir = filters.sortOrder === 'oldest' ? 1 : -1;
+    return articles
+      .sort((a, b) => dir * (a.pub_date - b.pub_date))
+      .slice(offset, offset + limit);
   }
 
   async getBookmarks(): Promise<Article[]> {
@@ -585,8 +730,8 @@ export function pruneOldArticles(): Promise<number> {
   return getDb().pruneOldArticles();
 }
 
-export function getDigestFeed(limit = 50): Promise<Article[]> {
-  return getDb().getDigestFeed(limit);
+export function getDigestFeed(limit = 50, offset = 0, sortOrder: 'newest' | 'oldest' = 'newest'): Promise<Article[]> {
+  return getDb().getDigestFeed(limit, offset, sortOrder);
 }
 
 export function getArticlesByCategory(category: string, limit = 50, offset = 0): Promise<Article[]> {
@@ -603,6 +748,10 @@ export function searchArticlesBySource(query: string, sourceName: string, limit 
 
 export function getEnabledFeedSources(): Promise<FeedSource[]> {
   return getDb().getEnabledFeedSources();
+}
+
+export function getFilteredArticles(filters: FilterState, searchText?: string, limit = 50, offset = 0): Promise<Article[]> {
+  return getDb().getFilteredArticles(filters, searchText, limit, offset);
 }
 
 export function getBookmarks(): Promise<Article[]> {

@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
+  Text,
   StyleSheet,
   RefreshControl,
   ActivityIndicator,
@@ -9,12 +10,13 @@ import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '@/context/AppContext';
 import { Spacing } from '@/constants/Spacing';
-import { Article } from '@/types';
-import { getDigestFeed, searchArticles, toggleBookmark, getUnreadCount, saveArticles } from '@/services/db';
+import { Typography } from '@/constants/Typography';
+import { Article, FeedSource, FilterState, DEFAULT_FILTER } from '@/types';
+import { getDigestFeed, toggleBookmark, getUnreadCount, saveArticles, getFilteredArticles, getEnabledFeedSources } from '@/services/db';
 import { fetchAllFeeds } from '@/services/rssParser';
 import { deduplicateByLink } from '@/services/ranking';
 import { SearchBar } from '@/components/common';
-import { DigestCard, SectionHeader } from '@/components/digest';
+import { DigestCard, FilterModal } from '@/components/digest';
 import { ArticleSkeleton, EmptyState, Button } from '@/components/ui';
 import { Newspaper, RefreshCw } from 'lucide-react-native';
 
@@ -29,31 +31,60 @@ export default function DigestScreen() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
+  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTER);
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [enabledSources, setEnabledSources] = useState<FeedSource[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const loadData = useCallback(async (searchText: string) => {
+  const PAGE_SIZE = 50;
+
+  const isFilterActive =
+    filters.categories.length > 0 ||
+    filters.sourceNames.length > 0 ||
+    filters.minRating > 0 ||
+    filters.datePreset !== null;
+
+  const loadData = useCallback(async (searchText: string, loadOffset = 0) => {
     try {
-      if (searchText.trim()) {
-        setSearching(true);
-        const results = await searchArticles(searchText.trim(), 50);
-        setArticles(results);
+      const hasFilters = filters.categories.length > 0 || filters.sourceNames.length > 0 || filters.minRating > 0 || filters.datePreset !== null;
+      if (hasFilters || searchText.trim()) {
+        if (loadOffset === 0) setSearching(true);
+        const results = await getFilteredArticles(filters, searchText.trim() || undefined, PAGE_SIZE, loadOffset);
+        if (loadOffset === 0) setArticles(results);
+        else setArticles(prev => [...prev, ...results]);
+        if (results.length < PAGE_SIZE) setHasMore(false);
       } else {
-        const feed = await getDigestFeed(50);
-        setArticles(feed);
+        const feed = await getDigestFeed(PAGE_SIZE, loadOffset, filters.sortOrder);
+        if (loadOffset === 0) setArticles(feed);
+        else setArticles(prev => [...prev, ...feed]);
+        if (feed.length < PAGE_SIZE) setHasMore(false);
       }
-      const count = await getUnreadCount();
-      setUnreadCount(count);
+      if (loadOffset === 0) {
+        const count = await getUnreadCount();
+        setUnreadCount(count);
+      }
     } catch (error) {
       console.error('Failed to load articles:', error);
     } finally {
       setLoading(false);
       setSearching(false);
+      setLoadingMore(false);
     }
-  }, []);
+  }, [filters]);
+
+  const loadMore = useCallback(() => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    loadData(searchQuery, articles.length);
+  }, [loadingMore, hasMore, loadData, searchQuery, articles.length]);
 
   useEffect(() => {
+    setHasMore(true);
     loadData(searchQuery);
-  }, [dataVersion]);
+    getEnabledFeedSources().then(setEnabledSources);
+  }, [dataVersion, loadData]);
 
   useEffect(() => {
     return () => {
@@ -62,6 +93,7 @@ export default function DigestScreen() {
   }, []);
 
   const onRefresh = useCallback(async () => {
+    setHasMore(true);
     setRefreshing(true);
     await loadData(searchQuery);
     setRefreshing(false);
@@ -69,6 +101,7 @@ export default function DigestScreen() {
 
   const fetchNews = useCallback(async () => {
     if (fetching) return;
+    setHasMore(true);
     setFetching(true);
     try {
       const rawArticles = await fetchAllFeeds();
@@ -85,6 +118,7 @@ export default function DigestScreen() {
 
   const handleSearchTextChange = useCallback((text: string) => {
     setSearchQuery(text);
+    setHasMore(true);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       loadData(text);
@@ -92,6 +126,7 @@ export default function DigestScreen() {
   }, [loadData]);
 
   const handleSearchSubmit = useCallback((text: string) => {
+    setHasMore(true);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     loadData(text);
   }, [loadData]);
@@ -101,15 +136,19 @@ export default function DigestScreen() {
     await loadData(searchQuery);
   }, [loadData, searchQuery]);
 
-  const { breaking, regular, displayArticles } = React.useMemo(() => {
-    const b = articles.filter((a) => a.importance_score === 5);
-    const r = articles.filter((a) => a.importance_score < 5);
-    return {
-      breaking: b,
-      regular: r,
-      displayArticles: b.length > 0 && r.length > 0 ? [b[0], ...r] : articles,
-    };
-  }, [articles]);
+  const handleOpenFilter = useCallback(() => {
+    setShowFilterModal(true);
+  }, []);
+
+  const handleApplyFilter = useCallback((newFilters: FilterState) => {
+    setFilters(newFilters);
+    setShowFilterModal(false);
+  }, []);
+
+  const handleClearFilter = useCallback(() => {
+    setFilters(DEFAULT_FILTER);
+    setShowFilterModal(false);
+  }, []);
 
   const renderArticle = useCallback(({ item }: { item: Article }) => (
     <DigestCard
@@ -118,28 +157,6 @@ export default function DigestScreen() {
       onBookmark={handleBookmark}
     />
   ), [compactMode, handleBookmark]);
-
-  const renderItem = useCallback(({ item, index }: { item: Article; index: number }) => {
-    if (index === 0 && breaking.length > 0) {
-      return (
-        <View>
-          <SectionHeader title="Breaking" breaking count={breaking.length} />
-          {breaking.map((article) => (
-            <DigestCard
-              key={article.id}
-              article={article}
-              variant="full"
-              onBookmark={handleBookmark}
-            />
-          ))}
-          {regular.length > 0 && (
-            <SectionHeader title="Latest Stories" count={regular.length} />
-          )}
-        </View>
-      );
-    }
-    return renderArticle({ item });
-  }, [breaking, regular, renderArticle, handleBookmark]);
 
   if (loading && articles.length === 0) {
     return (
@@ -156,12 +173,23 @@ export default function DigestScreen() {
   const isEmpty = articles.length === 0 && !searching && !loading;
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.bgPrimary, paddingTop: insets.top }]}>
+    <View style={[styles.container, { backgroundColor: colors.bgPrimary, paddingTop: insets.top + Spacing.sm }]}>
       <SearchBar
         value={searchQuery}
         onChangeText={handleSearchTextChange}
         onSubmitEditing={handleSearchSubmit}
+        onFilterPress={handleOpenFilter}
+        filterActive={isFilterActive}
         placeholder="Search articles..."
+      />
+
+      <FilterModal
+        visible={showFilterModal}
+        filters={filters}
+        onApply={handleApplyFilter}
+        onClear={handleClearFilter}
+        onClose={() => setShowFilterModal(false)}
+        sources={enabledSources}
       />
 
       {searching && (
@@ -186,14 +214,32 @@ export default function DigestScreen() {
         />
       ) : (
         <FlashList
-          data={displayArticles}
+          data={articles}
           keyExtractor={(item) => item.id}
-          renderItem={renderItem}
+          renderItem={renderArticle}
           contentContainerStyle={[
             styles.listContent,
             { paddingBottom: insets.bottom + Spacing.xxl },
           ]}
           showsVerticalScrollIndicator={false}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={styles.footerLoader}>
+                <ActivityIndicator size="small" color={colors.brandPrimary} />
+                <Text style={[Typography.bodySmall, { color: colors.textTertiary, marginLeft: Spacing.sm }]}>
+                  Loading more...
+                </Text>
+              </View>
+            ) : !hasMore && articles.length > 0 ? (
+              <View style={styles.footerLoader}>
+                <Text style={[Typography.bodySmall, { color: colors.textTertiary }]}>
+                  All articles loaded
+                </Text>
+              </View>
+            ) : null
+          }
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -223,5 +269,11 @@ const styles = StyleSheet.create({
   searchingIndicator: {
     paddingVertical: Spacing.md,
     alignItems: 'center',
+  },
+  footerLoader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.lg,
   },
 });
