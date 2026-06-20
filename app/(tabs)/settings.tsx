@@ -125,10 +125,10 @@ export default function SettingsScreen() {
     </View>
   );
 
-  const themeOptions: { mode: ThemeMode; icon: React.ReactNode; label: string }[] = [
-    { mode: 'system', icon: <Monitor size={18} />, label: 'System' },
-    { mode: 'dark', icon: <Moon size={18} />, label: 'Dark' },
-    { mode: 'light', icon: <Sun size={18} />, label: 'Light' },
+  const themeOptions: { mode: ThemeMode; renderIcon: (color: string) => React.ReactNode; label: string }[] = [
+    { mode: 'system', renderIcon: (c: string) => <Monitor size={18} color={c} />, label: 'System' },
+    { mode: 'dark', renderIcon: (c: string) => <Moon size={18} color={c} />, label: 'Dark' },
+    { mode: 'light', renderIcon: (c: string) => <Sun size={18} color={c} />, label: 'Light' },
   ];
 
   return (
@@ -139,7 +139,7 @@ export default function SettingsScreen() {
       {renderSection('Appearance',
         <>
           <View style={styles.themeRow}>
-            {themeOptions.map(({ mode, icon, label }) => (
+            {themeOptions.map(({ mode, renderIcon, label }) => (
               <Pressable
                 key={mode}
                 style={[
@@ -148,7 +148,7 @@ export default function SettingsScreen() {
                 ]}
                 onPress={() => setThemeMode(mode)}
               >
-                {icon}
+                {renderIcon(themeMode === mode ? colors.brandPrimary : colors.textSecondary)}
                 <Text
                   style={[
                     Typography.labelMedium,
@@ -265,7 +265,7 @@ export default function SettingsScreen() {
 
       <View style={styles.footer}>
         <Text style={[Typography.bodySmall, { color: colors.textTertiary, textAlign: 'center' }]}>
-          Tech Pulse - Daily tech news for developers
+          Distill - Daily tech news for developers
         </Text>
         <Text style={[Typography.labelSmall, { color: colors.textTertiary, marginTop: Spacing.xs }]}>
           Made with React Native & Expo

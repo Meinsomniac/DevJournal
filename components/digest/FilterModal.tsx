@@ -132,6 +132,46 @@ export function FilterModal({ visible, filters, onApply, onClear, onClose, sourc
 
           <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
             <Text style={[Typography.titleMedium, styles.sectionTitle, { color: colors.textSecondary }]}>
+              Sort By
+            </Text>
+            <View style={styles.chipWrap}>
+              <TouchableOpacity
+                style={[
+                  styles.chip,
+                  {
+                    backgroundColor: localFilters.sortOrder === 'newest' ? colors.brandPrimary + '20' : colors.bgTertiary,
+                    borderColor: localFilters.sortOrder === 'newest' ? colors.brandPrimary : colors.borderLight,
+                  },
+                ]}
+                onPress={() => setLocalFilters(prev => ({ ...prev, sortOrder: 'newest' }))}
+              >
+                <Text style={[
+                  Typography.labelMedium,
+                  { color: localFilters.sortOrder === 'newest' ? colors.brandPrimary : colors.textSecondary },
+                ]}>
+                  Newest
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.chip,
+                  {
+                    backgroundColor: localFilters.sortOrder === 'oldest' ? colors.brandPrimary + '20' : colors.bgTertiary,
+                    borderColor: localFilters.sortOrder === 'oldest' ? colors.brandPrimary : colors.borderLight,
+                  },
+                ]}
+                onPress={() => setLocalFilters(prev => ({ ...prev, sortOrder: 'oldest' }))}
+              >
+                <Text style={[
+                  Typography.labelMedium,
+                  { color: localFilters.sortOrder === 'oldest' ? colors.brandPrimary : colors.textSecondary },
+                ]}>
+                  Oldest
+                </Text>
+              </TouchableOpacity>
+            </View>
+            
+            <Text style={[Typography.titleMedium, styles.sectionTitle, { color: colors.textSecondary }]}>
               Date
             </Text>
             <View style={styles.chipWrap}>
@@ -261,46 +301,6 @@ export function FilterModal({ visible, filters, onApply, onClear, onClose, sourc
                 </TouchableOpacity>
               );
             })}
-
-            <Text style={[Typography.titleMedium, styles.sectionTitle, { color: colors.textSecondary }]}>
-              Sort By
-            </Text>
-            <View style={styles.chipWrap}>
-              <TouchableOpacity
-                style={[
-                  styles.chip,
-                  {
-                    backgroundColor: localFilters.sortOrder === 'newest' ? colors.brandPrimary + '20' : colors.bgTertiary,
-                    borderColor: localFilters.sortOrder === 'newest' ? colors.brandPrimary : colors.borderLight,
-                  },
-                ]}
-                onPress={() => setLocalFilters(prev => ({ ...prev, sortOrder: 'newest' }))}
-              >
-                <Text style={[
-                  Typography.labelMedium,
-                  { color: localFilters.sortOrder === 'newest' ? colors.brandPrimary : colors.textSecondary },
-                ]}>
-                  Newest
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.chip,
-                  {
-                    backgroundColor: localFilters.sortOrder === 'oldest' ? colors.brandPrimary + '20' : colors.bgTertiary,
-                    borderColor: localFilters.sortOrder === 'oldest' ? colors.brandPrimary : colors.borderLight,
-                  },
-                ]}
-                onPress={() => setLocalFilters(prev => ({ ...prev, sortOrder: 'oldest' }))}
-              >
-                <Text style={[
-                  Typography.labelMedium,
-                  { color: localFilters.sortOrder === 'oldest' ? colors.brandPrimary : colors.textSecondary },
-                ]}>
-                  Oldest
-                </Text>
-              </TouchableOpacity>
-            </View>
 
             <View style={{ height: Spacing.xxxl + 60 }} />
           </ScrollView>

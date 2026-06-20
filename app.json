@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Tech Pulse",
-    "slug": "tech-pulse",
+    "name": "Distill",
+    "slug": "distill",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "techpulse",
+    "scheme": "distill",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
