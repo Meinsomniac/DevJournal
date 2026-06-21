@@ -1,7 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import { ArticleInput } from '@/types';
 import { stripHtml, extractImageFromHtml } from '@/utils/html';
-import { calculateImportanceScore, categorizeArticle } from './ranking';
+import { calculateImportanceScore } from './ranking';
 import { getEnabledFeeds, getDisabledFeeds, getCustomFeeds } from './db';
 
 const parser = new XMLParser({
@@ -67,9 +67,31 @@ function extractDate(item: RawFeedItem): number {
   return isNaN(parsed) ? Date.now() : parsed;
 }
 
+function isLowQualitySummary(text: string, title: string): boolean {
+  const t = text.trim().toLowerCase();
+  if (t.length < 50) return true;
+  if (/^(article\s*url|comments?\s*url|url)\s*:/i.test(t)) return true;
+  if (t === title.trim().toLowerCase()) return true;
+  return false;
+}
+
 function extractSummary(item: RawFeedItem): string {
-  const raw = item.summary || item.description || item['content:encoded'] || item.content || '';
-  return stripHtml(raw).substring(0, 500);
+  const title = extractTitle(item);
+
+  const candidates = [
+    item['content:encoded'],
+    item.content,
+    item.description,
+    item.summary,
+  ].filter((f): f is string => typeof f === 'string' && f.length > 0);
+
+  for (const text of candidates) {
+    const cleaned = stripHtml(text).substring(0, 500);
+    if (!isLowQualitySummary(cleaned, title)) return cleaned;
+  }
+
+  const all = candidates.map(f => stripHtml(f).substring(0, 500)).filter(f => f.length > 0);
+  return all.length > 0 ? all.reduce((a, b) => a.length >= b.length ? a : b) : '';
 }
 
 function extractTitle(item: RawFeedItem): string {
@@ -117,7 +139,6 @@ const DEFAULT_MAX_ARTICLES = 20;
 export async function fetchAndParseFeed(
   url: string,
   sourceName: string,
-  category: string,
   iconUri?: string,
   maxArticles?: number,
   keywords?: string[]
@@ -184,7 +205,6 @@ export async function fetchAndParseFeed(
 
         const id = generateId(link, title, pubDate);
         const importanceScore = calculateImportanceScore(title, summary, sourceName);
-        const articleCategory = categorizeArticle(title, summary, sourceName);
 
         allArticles.push({
           id,
@@ -197,7 +217,6 @@ export async function fetchAndParseFeed(
           summary,
           image_uri: imageUri,
           importance_score: importanceScore,
-          category: articleCategory,
         });
       } catch (itemError) {
         console.error(`Failed to parse item from ${sourceName}:`, itemError);
@@ -259,7 +278,7 @@ export async function fetchAllFeeds(): Promise<ArticleInput[]> {
 
   const results = await Promise.allSettled(
     activeSources.map(source =>
-      fetchAndParseFeed(source.rss_url, source.name, source.category, source.icon)
+      fetchAndParseFeed(source.rss_url, source.name, source.icon)
     )
   );
 

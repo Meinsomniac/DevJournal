@@ -12,12 +12,12 @@ export const Spacing = {
 } as const;
 
 export const BorderRadius = {
-  xs: 4,
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 24,
+  xs: 2,
+  sm: 4,
+  md: 6,
+  lg: 8,
+  xl: 12,
   full: 9999,
-  card: 16,
-  chip: 9999,
+  card: 8,
+  chip: 4,
 } as const;

@@ -1,4 +1,3 @@
-import { ArticleCategory } from '@/types';
 import { XMLParser } from 'fast-xml-parser';
 
 export interface DiscoveredFeed {
@@ -6,7 +5,6 @@ export interface DiscoveredFeed {
   rssUrl: string;
   url: string;
   favicon: string;
-  category: ArticleCategory;
 }
 
 const BROWSER_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1';
@@ -91,7 +89,6 @@ function extractLinkTags(html: string, baseUrl: string): DiscoveredFeed[] {
       rssUrl,
       url: baseUrl,
       favicon: extractFavicon(baseUrl),
-      category: guessCategory(name + ' ' + rssUrl),
     });
   }
 
@@ -128,7 +125,6 @@ function extractAnchorFeedLinks(html: string, baseUrl: string): DiscoveredFeed[]
       rssUrl,
       url: baseUrl,
       favicon: extractFavicon(baseUrl),
-      category: guessCategory(text + ' ' + rssUrl),
     });
   }
 
@@ -222,7 +218,6 @@ async function tryDirectFeed(url: string): Promise<DiscoveredFeed | null> {
       rssUrl: url,
       url,
       favicon: extractFavicon(url),
-      category: guessCategory(name + ' ' + url),
     };
   } catch {
     return null;
@@ -275,7 +270,6 @@ async function speculateFeeds(url: string): Promise<DiscoveredFeed[]> {
           rssUrl: result.value,
           url,
           favicon: extractFavicon(url),
-          category: guessCategory(extractNameFromUrl(url) + ' ' + result.value),
         });
       }
     }
@@ -327,7 +321,6 @@ export async function discoverRssFromUrl(url: string): Promise<DiscoveredFeed[]>
         rssUrl: normalizedUrl,
         url: normalizedUrl,
         favicon: extractFavicon(normalizedUrl),
-        category: guessCategory(name + ' ' + normalizedUrl),
       }];
     }
 
@@ -421,33 +414,4 @@ function extractFavicon(url: string): string {
   }
 }
 
-function guessCategory(text: string): ArticleCategory {
-  const t = text.toLowerCase();
 
-  const categoryKeywords: Record<ArticleCategory, string[]> = {
-    AI: ['ai', 'machine learning', 'ml', 'gpt', 'llm', 'neural', 'openai', 'anthropic', 'hugging', 'deep learning'],
-    Frontend: ['react', 'vue', 'angular', 'javascript', 'typescript', 'css', 'frontend', 'ui', 'web', 'expo', 'next'],
-    Backend: ['node', 'python', 'rust', 'go', 'java', 'ruby', 'backend', 'api', 'database', 'server'],
-    Infrastructure: ['kubernetes', 'docker', 'aws', 'cloud', 'devops', 'terraform', 'infra', 'azure'],
-    Security: ['security', 'hack', 'cyber', 'vulnerability', 'breach', 'encrypt'],
-    Career: ['career', 'job', 'salary', 'hiring', 'interview', 'resume'],
-    Tools: ['git', 'github', 'vscode', 'figma', 'tool', 'cli', 'sdk'],
-    General: ['tech', 'news', 'blog', 'code', 'programming', 'developer'],
-  };
-
-  let bestCategory: ArticleCategory = 'General';
-  let bestScore = 0;
-
-  for (const [category, keywords] of Object.entries(categoryKeywords)) {
-    let score = 0;
-    for (const kw of keywords) {
-      if (t.includes(kw)) score++;
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      bestCategory = category as ArticleCategory;
-    }
-  }
-
-  return bestCategory;
-}

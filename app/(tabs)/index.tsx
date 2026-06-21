@@ -5,6 +5,8 @@ import {
   StyleSheet,
   RefreshControl,
   ActivityIndicator,
+  AppState,
+  AppStateStatus,
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,13 +17,14 @@ import { Article, FeedSource, FilterState, DEFAULT_FILTER } from '@/types';
 import { getDigestFeed, toggleBookmark, getUnreadCount, saveArticles, getFilteredArticles, getEnabledFeedSources } from '@/services/db';
 import { fetchAllFeeds } from '@/services/rssParser';
 import { deduplicateByLink } from '@/services/ranking';
+import { sendBreakingNotificationBatch } from '@/services/notifications';
 import { SearchBar } from '@/components/common';
 import { DigestCard, FilterModal } from '@/components/digest';
 import { ArticleSkeleton, EmptyState, Button } from '@/components/ui';
 import { Newspaper, RefreshCw } from 'lucide-react-native';
 
 export default function DigestScreen() {
-  const { colors, compactMode, dataVersion } = useApp();
+  const { colors, compactMode, dataVersion, notifyBreaking } = useApp();
   const insets = useSafeAreaInsets();
 
   const [articles, setArticles] = useState<Article[]>([]);
@@ -37,18 +40,19 @@ export default function DigestScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [enabledSources, setEnabledSources] = useState<FeedSource[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appState = useRef(AppState.currentState);
+  const articleIdsBeforeFetch = useRef<Set<string> | null>(null);
 
   const PAGE_SIZE = 50;
 
   const isFilterActive =
-    filters.categories.length > 0 ||
     filters.sourceNames.length > 0 ||
     filters.minRating > 0 ||
     filters.datePreset !== null;
 
   const loadData = useCallback(async (searchText: string, loadOffset = 0) => {
     try {
-      const hasFilters = filters.categories.length > 0 || filters.sourceNames.length > 0 || filters.minRating > 0 || filters.datePreset !== null;
+      const hasFilters = filters.sourceNames.length > 0 || filters.minRating > 0 || filters.datePreset !== null;
       if (hasFilters || searchText.trim()) {
         if (loadOffset === 0) setSearching(true);
         const results = await getFilteredArticles(filters, searchText.trim() || undefined, PAGE_SIZE, loadOffset);
@@ -92,29 +96,58 @@ export default function DigestScreen() {
     };
   }, []);
 
-  const onRefresh = useCallback(async () => {
-    setHasMore(true);
-    setRefreshing(true);
-    await loadData(searchQuery);
-    setRefreshing(false);
-  }, [loadData, searchQuery]);
-
   const fetchNews = useCallback(async () => {
     if (fetching) return;
+    articleIdsBeforeFetch.current = new Set(articles.map(a => a.id));
     setHasMore(true);
     setFetching(true);
     try {
       const rawArticles = await fetchAllFeeds();
       const unique = deduplicateByLink(rawArticles);
+
+      const breaking = notifyBreaking
+        ? unique.filter(a => a.importance_score === 5 && !articleIdsBeforeFetch.current?.has(a.id))
+        : [];
+
       const saved = await saveArticles(unique);
       console.log(`Saved ${saved} new articles`);
+
+      if (breaking.length > 0) {
+        await sendBreakingNotificationBatch(
+          breaking.map(a => ({ title: a.title, sourceName: a.source_name, id: a.id }))
+        );
+      }
+
       await loadData(searchQuery);
     } catch (error) {
       console.error('Failed to fetch news:', error);
     } finally {
       setFetching(false);
     }
-  }, [fetching, loadData, searchQuery]);
+  }, [fetching, loadData, searchQuery, notifyBreaking, articles]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchNews();
+    setRefreshing(false);
+  }, [fetchNews]);
+
+  // Auto-fetch on app foreground and every 5 minutes
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+      if (appState.current.match(/inactive|background/) && nextState === 'active') {
+        fetchNews();
+      }
+      appState.current = nextState;
+    });
+
+    const interval = setInterval(fetchNews, 5 * 60 * 1000);
+
+    return () => {
+      subscription.remove();
+      clearInterval(interval);
+    };
+  }, [fetchNews]);
 
   const handleSearchTextChange = useCallback((text: string) => {
     setSearchQuery(text);
@@ -153,7 +186,7 @@ export default function DigestScreen() {
   const renderArticle = useCallback(({ item }: { item: Article }) => (
     <DigestCard
       article={item}
-      variant={compactMode ? 'compact' : item.importance_score >= 4 ? 'full' : 'compact'}
+      variant={compactMode ? 'compact' : 'full'}
       onBookmark={handleBookmark}
     />
   ), [compactMode, handleBookmark]);

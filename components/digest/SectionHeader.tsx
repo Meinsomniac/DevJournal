@@ -3,36 +3,19 @@ import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from '@/hooks/useTheme';
 import { Typography } from '@/constants/Typography';
 import { Spacing } from '@/constants/Spacing';
-import { LucideIcon, Flame, Sparkles, Code, Database, Cloud, Shield, Briefcase, Wrench, Newspaper } from 'lucide-react-native';
-import { ArticleCategory } from '@/types';
-
-const CATEGORY_ICONS: Record<ArticleCategory, LucideIcon> = {
-  AI: Sparkles,
-  Frontend: Code,
-  Backend: Database,
-  Infrastructure: Cloud,
-  Security: Shield,
-  Career: Briefcase,
-  Tools: Wrench,
-  General: Newspaper,
-};
+import { Flame, Newspaper } from 'lucide-react-native';
 
 interface SectionHeaderProps {
   title: string;
-  category?: ArticleCategory;
   breaking?: boolean;
   count?: number;
 }
 
-export function SectionHeader({ title, category, breaking, count }: SectionHeaderProps) {
+export function SectionHeader({ title, breaking, count }: SectionHeaderProps) {
   const { colors } = useTheme();
 
-  const Icon = category ? CATEGORY_ICONS[category] : breaking ? Flame : Newspaper;
-  const color = breaking
-    ? colors.warning
-    : category
-    ? colors[`cat${category}` as keyof typeof colors] || colors.textPrimary
-    : colors.textPrimary;
+  const Icon = breaking ? Flame : Newspaper;
+  const color = breaking ? colors.warning : colors.textPrimary;
 
   return (
     <View style={styles.container}>

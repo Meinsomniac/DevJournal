@@ -1,5 +1,4 @@
-import { ArticleCategory } from '@/types';
-import { MAJOR_KEYWORDS, MINOR_KEYWORDS, CATEGORY_KEYWORDS } from '@/constants/Keywords';
+import { MAJOR_KEYWORDS, MINOR_KEYWORDS } from '@/constants/Keywords';
 
 export function calculateImportanceScore(title: string, summary: string, source: string): number {
   const text = (title + ' ' + summary).toLowerCase();
@@ -47,29 +46,6 @@ export function calculateImportanceScore(title: string, summary: string, source:
 
   // Clamp between 1 and 5
   return Math.max(1, Math.min(5, Math.round(score)));
-}
-
-export function categorizeArticle(title: string, summary: string, source: string): ArticleCategory {
-  const text = (title + ' ' + summary + ' ' + source).toLowerCase();
-
-  // Check each category by keyword relevance
-  const scores: { category: ArticleCategory; score: number }[] = [];
-
-  for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
-    let matchCount = 0;
-    for (const keyword of keywords) {
-      if (text.includes(keyword)) {
-        matchCount++;
-      }
-    }
-    scores.push({ category: category as ArticleCategory, score: matchCount });
-  }
-
-  // Sort by score descending
-  scores.sort((a, b) => b.score - a.score);
-
-  // Return top category if score > 0, else General
-  return scores[0].score > 0 ? scores[0].category : 'General';
 }
 
 export function deduplicateByLink<T extends { link: string }>(articles: T[]): T[] {

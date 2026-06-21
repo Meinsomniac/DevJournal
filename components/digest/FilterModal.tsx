@@ -15,9 +15,7 @@ import {
   FilterState,
   DEFAULT_FILTER,
   FeedSource,
-  ArticleCategory,
 } from '@/types';
-import { FEED_CATEGORIES } from '@/constants/Feeds';
 import { SlidersHorizontal, Star, Check } from 'lucide-react-native';
 
 interface FilterModalProps {
@@ -47,18 +45,6 @@ export function FilterModal({ visible, filters, onApply, onClear, onClose, sourc
     }
     prevVisible.current = visible;
   }, [visible, filters]);
-
-  const toggleCategory = useCallback((cat: ArticleCategory) => {
-    setLocalFilters(prev => {
-      const exists = prev.categories.includes(cat);
-      return {
-        ...prev,
-        categories: exists
-          ? prev.categories.filter(c => c !== cat)
-          : [...prev.categories, cat],
-      };
-    });
-  }, []);
 
   const toggleSource = useCallback((source: FeedSource) => {
     setLocalFilters(prev => {
@@ -96,7 +82,6 @@ export function FilterModal({ visible, filters, onApply, onClear, onClose, sourc
   }, [onApply, localFilters]);
 
   const activeGroupCount =
-    (localFilters.categories.length > 0 ? 1 : 0) +
     (localFilters.sourceNames.length > 0 ? 1 : 0) +
     (localFilters.minRating > 0 ? 1 : 0) +
     (localFilters.datePreset !== null ? 1 : 0);
@@ -234,42 +219,6 @@ export function FilterModal({ visible, filters, onApply, onClear, onClose, sourc
                   </Text>
                 </View>
               )}
-            </View>
-
-            <Text style={[Typography.titleMedium, styles.sectionTitle, { color: colors.textSecondary }]}>
-              Category
-            </Text>
-            <View style={styles.chipWrap}>
-              {FEED_CATEGORIES.map(({ key, label }) => (
-                <TouchableOpacity
-                  key={key}
-                  style={[
-                    styles.chip,
-                    {
-                      backgroundColor: localFilters.categories.includes(key as ArticleCategory)
-                        ? colors.brandPrimary + '20'
-                        : colors.bgTertiary,
-                      borderColor: localFilters.categories.includes(key as ArticleCategory)
-                        ? colors.brandPrimary
-                        : colors.borderLight,
-                    },
-                  ]}
-                  onPress={() => toggleCategory(key as ArticleCategory)}
-                >
-                  <Text
-                    style={[
-                      Typography.labelMedium,
-                      {
-                        color: localFilters.categories.includes(key as ArticleCategory)
-                          ? colors.brandPrimary
-                          : colors.textSecondary,
-                      },
-                    ]}
-                  >
-                    {label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
             </View>
 
             <Text style={[Typography.titleMedium, styles.sectionTitle, { color: colors.textSecondary }]}>

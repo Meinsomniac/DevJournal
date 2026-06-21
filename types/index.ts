@@ -1,13 +1,3 @@
-export type ArticleCategory =
-  | 'AI'
-  | 'Frontend'
-  | 'Backend'
-  | 'Infrastructure'
-  | 'Security'
-  | 'Career'
-  | 'Tools'
-  | 'General';
-
 export interface Article {
   id: string;
   title: string;
@@ -19,7 +9,6 @@ export interface Article {
   summary: string;
   image_uri?: string;
   importance_score: number; // 1-5
-  category: ArticleCategory;
   is_bookmarked: boolean;
   is_read: boolean;
 }
@@ -35,14 +24,12 @@ export interface ArticleInput {
   summary: string;
   image_uri?: string;
   importance_score: number;
-  category: ArticleCategory;
 }
 
 export interface FeedSource {
   id: string;
   name: string;
   url: string;
-  category: ArticleCategory;
   icon?: string;
   enabled: boolean;
   keywords?: string[];
@@ -54,7 +41,6 @@ export interface CustomFeed {
   name: string;
   url: string;
   rss_url: string;
-  category: ArticleCategory;
   icon?: string;
   added_at: number;
 }
@@ -73,7 +59,6 @@ export interface UserPreferences {
 }
 
 export interface FilterState {
-  categories: ArticleCategory[];
   sourceNames: string[];
   minRating: number;
   datePreset: '24h' | '7d' | '30d' | null;
@@ -81,7 +66,6 @@ export interface FilterState {
 }
 
 export const DEFAULT_FILTER: FilterState = {
-  categories: [],
   sourceNames: [],
   minRating: 0,
   datePreset: null,

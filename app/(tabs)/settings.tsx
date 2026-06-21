@@ -191,8 +191,8 @@ export default function SettingsScreen() {
       {renderSection('Notifications',
         <>
           {renderSetting(
-            'Breaking News Alerts',
-            'Get notified for important stories (score 5)',
+            'Important News Alerts',
+            'Receive a notification when a new high-importance story is detected during auto-fetch or manual refresh. Multiple alerts are batched into one.',
             <Switch
               value={notifyBreaking}
               onValueChange={setNotifyBreaking}
@@ -265,7 +265,7 @@ export default function SettingsScreen() {
 
       <View style={styles.footer}>
         <Text style={[Typography.bodySmall, { color: colors.textTertiary, textAlign: 'center' }]}>
-          Distill - Daily tech news for developers
+          DevDigest - Daily tech news for developers
         </Text>
         <Text style={[Typography.labelSmall, { color: colors.textTertiary, marginTop: Spacing.xs }]}>
           Made with React Native & Expo

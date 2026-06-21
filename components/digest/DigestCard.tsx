@@ -8,7 +8,6 @@ import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { Shadows } from '@/constants/Shadows';
 import { formatRelative } from '@/utils/date';
 import { ImportanceStars, SourceIcon } from '@/components/ui';
-import { CategoryChip } from '@/components/ui/CategoryChip';
 import { Bookmark, ChevronRight } from 'lucide-react-native';
 import { FEED_SOURCES } from '@/constants/Feeds';
 
@@ -54,9 +53,9 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
           <View style={styles.compactTop}>
             <ImportanceStars score={article.importance_score} size={10} />
             {article.importance_score === 5 && (
-              <View style={[styles.breakingBadgeSmall, { backgroundColor: colors.error + '20' }]}>
+              <View style={[styles.importantBadgeSmall, { backgroundColor: colors.error + '20' }]}>
                 <Text style={[Typography.labelSmall, { color: colors.error, fontSize: 9, fontWeight: '700' }]}>
-                  Breaking
+                  Important
                 </Text>
               </View>
             )}
@@ -100,21 +99,30 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <ImportanceStars score={article.importance_score} size={12} color={colors.warning} />
-          {article.importance_score === 5 && (
-            <View style={[styles.breakingBadge, { backgroundColor: colors.error + '20' }]}>
-              <Text style={[Typography.labelSmall, { color: colors.error, fontWeight: '700' }]}>
-                Breaking
-              </Text>
-            </View>
-          )}
+            {article.importance_score === 5 && (
+              <View style={[styles.importantBadge, { backgroundColor: colors.error + '20' }]}>
+                <Text style={[Typography.labelSmall, { color: colors.error, fontWeight: '700' }]}>
+                  Important
+                </Text>
+              </View>
+            )}
         </View>
         <View style={styles.headerRight}>
-          <CategoryChip category={article.category} size="small" />
-        </View>
+          </View>
       </View>
 
-      {article.image_uri && (
+      {article.image_uri ? (
         <Image source={{ uri: article.image_uri }} style={styles.image} />
+      ) : (
+        <View style={[styles.imagePlaceholder, { backgroundColor: colors.borderLight }]}>
+          <SourceIcon
+            iconUri={iconUri}
+            name={article.source_name}
+            size={32}
+            backgroundColor={colors.bgCard}
+            color={colors.textTertiary}
+          />
+        </View>
       )}
 
       <Text
@@ -198,12 +206,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.sm,
   },
-  breakingBadge: {
+  importantBadge: {
     paddingHorizontal: Spacing.sm,
     paddingVertical: 2,
     borderRadius: BorderRadius.sm,
   },
-  breakingBadgeSmall: {
+  importantBadgeSmall: {
     paddingHorizontal: 4,
     paddingVertical: 1,
     borderRadius: BorderRadius.sm,
@@ -223,6 +231,14 @@ const styles = StyleSheet.create({
     height: 160,
     borderRadius: BorderRadius.md,
     marginBottom: Spacing.sm,
+  },
+  imagePlaceholder: {
+    width: '100%',
+    height: 160,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   compactImage: {
     width: 48,

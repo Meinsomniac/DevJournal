@@ -1,11 +1,22 @@
-import { Stack } from 'expo-router';
+import { useEffect } from 'react';
+import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import { AppProvider, useApp } from '@/context/AppContext';
+import { requestNotificationPermissions, setupNotificationResponseHandler } from '@/services/notifications';
 
 function ThemedLayout() {
   useFrameworkReady();
   const { isDark, colors } = useApp();
+  const router = useRouter();
+
+  useEffect(() => {
+    requestNotificationPermissions();
+    const subscription = setupNotificationResponseHandler(
+      (articleId) => router.push(`/article/${articleId}`)
+    );
+    return () => subscription.remove();
+  }, [router]);
 
   return (
     <>

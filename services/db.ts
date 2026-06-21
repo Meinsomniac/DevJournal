@@ -6,7 +6,6 @@ interface DatabaseInterface {
   saveArticles(articles: ArticleInput[]): Promise<number>;
   pruneOldArticles(): Promise<number>;
   getDigestFeed(limit?: number, offset?: number, sortOrder?: 'newest' | 'oldest'): Promise<Article[]>;
-  getArticlesByCategory(category: string, limit?: number, offset?: number): Promise<Article[]>;
   getBookmarks(): Promise<Article[]>;
   getHistory(limit?: number): Promise<Article[]>;
   searchArticles(query: string, limit?: number): Promise<Article[]>;
@@ -32,6 +31,7 @@ interface DatabaseInterface {
   searchArticlesBySource(query: string, sourceName: string, limit?: number): Promise<Article[]>;
   getEnabledFeedSources(): Promise<FeedSource[]>;
   getFilteredArticles(filters: FilterState, searchText?: string, limit?: number, offset?: number): Promise<Article[]>;
+  retainOnlyFeeds(keepIds: Set<string>): Promise<void>;
 }
 
 // ─── Native SQLite implementation ────────────────────────────────────────────
@@ -57,12 +57,10 @@ class NativeDatabase implements DatabaseInterface {
         summary TEXT,
         image_uri TEXT,
         importance_score INTEGER NOT NULL DEFAULT 1,
-        category TEXT NOT NULL,
         is_bookmarked INTEGER NOT NULL DEFAULT 0,
         is_read INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS idx_articles_pub_date ON articles(pub_date);
-      CREATE INDEX IF NOT EXISTS idx_articles_category ON articles(category);
       CREATE INDEX IF NOT EXISTS idx_articles_importance ON articles(importance_score);
       CREATE INDEX IF NOT EXISTS idx_articles_bookmarked ON articles(is_bookmarked);
       CREATE INDEX IF NOT EXISTS idx_articles_read ON articles(is_read);
@@ -82,11 +80,62 @@ class NativeDatabase implements DatabaseInterface {
         name TEXT NOT NULL,
         url TEXT NOT NULL,
         rss_url TEXT NOT NULL,
-        category TEXT NOT NULL DEFAULT 'General',
         icon TEXT,
         added_at INTEGER NOT NULL
       );
     `);
+
+    // Migration v1: remove category column from old databases
+    for (const table of ['articles', 'custom_feeds']) {
+      const cols = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`);
+      if (cols.some(c => c.name === 'category')) {
+        try {
+          await db.execAsync(`ALTER TABLE ${table} DROP COLUMN category`);
+        } catch {
+          // DROP COLUMN not supported (old SQLite) — recreate table
+          if (table === 'articles') {
+            await db.execAsync(`
+              CREATE TABLE articles_reborn (
+                id TEXT PRIMARY KEY NOT NULL,
+                title TEXT NOT NULL,
+                link TEXT NOT NULL,
+                source_name TEXT NOT NULL,
+                source_icon_uri TEXT,
+                pub_date INTEGER NOT NULL,
+                fetched_at INTEGER NOT NULL,
+                summary TEXT,
+                image_uri TEXT,
+                importance_score INTEGER NOT NULL DEFAULT 1,
+                is_bookmarked INTEGER NOT NULL DEFAULT 0,
+                is_read INTEGER NOT NULL DEFAULT 0
+              );
+              INSERT INTO articles_reborn SELECT id, title, link, source_name, source_icon_uri, pub_date, fetched_at, summary, image_uri, importance_score, is_bookmarked, is_read FROM articles;
+              DROP TABLE articles;
+              ALTER TABLE articles_reborn RENAME TO articles;
+              CREATE INDEX IF NOT EXISTS idx_articles_pub_date ON articles(pub_date);
+              CREATE INDEX IF NOT EXISTS idx_articles_importance ON articles(importance_score);
+              CREATE INDEX IF NOT EXISTS idx_articles_bookmarked ON articles(is_bookmarked);
+              CREATE INDEX IF NOT EXISTS idx_articles_read ON articles(is_read);
+            `);
+          } else {
+            await db.execAsync(`
+              CREATE TABLE custom_feeds_reborn (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                url TEXT NOT NULL,
+                rss_url TEXT NOT NULL,
+                icon TEXT,
+                added_at INTEGER NOT NULL
+              );
+              INSERT INTO custom_feeds_reborn SELECT id, name, url, rss_url, icon, added_at FROM custom_feeds;
+              DROP TABLE custom_feeds;
+              ALTER TABLE custom_feeds_reborn RENAME TO custom_feeds;
+            `);
+          }
+        }
+      }
+    }
+
     return db;
   }
 
@@ -105,9 +154,9 @@ class NativeDatabase implements DatabaseInterface {
         );
         if (!existing) {
           await db.runAsync(
-            `INSERT INTO articles (id, title, link, source_name, source_icon_uri, pub_date, fetched_at, summary, image_uri, importance_score, category, is_bookmarked, is_read)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`,
-            [a.id, a.title, a.link, a.source_name, a.source_icon_uri ?? null, a.pub_date, a.fetched_at, a.summary, a.image_uri ?? null, a.importance_score, a.category]
+            `INSERT INTO articles (id, title, link, source_name, source_icon_uri, pub_date, fetched_at, summary, image_uri, importance_score, is_bookmarked, is_read)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`,
+            [a.id, a.title, a.link, a.source_name, a.source_icon_uri ?? null, a.pub_date, a.fetched_at, a.summary, a.image_uri ?? null, a.importance_score]
           );
           inserted++;
         }
@@ -158,19 +207,20 @@ class NativeDatabase implements DatabaseInterface {
     const enabledIds = new Set(
       allPrefs.filter(r => r.enabled === 1).map(r => r.feed_id)
     );
+
     const { FEED_SOURCES } = await import('@/constants/Feeds');
-    const names = FEED_SOURCES
+    const builtinNames = FEED_SOURCES
       .filter(s => enabledIds.has(s.id))
       .map(s => s.name);
-    return { names, hasPrefs: true };
-  }
 
-  async getArticlesByCategory(category: string, limit = 50, offset = 0): Promise<Article[]> {
-    const db = await this.getDb();
-    return db.getAllAsync<Article>(
-      `SELECT * FROM articles WHERE category = ? ORDER BY pub_date DESC LIMIT ? OFFSET ?`,
-      [category, limit, offset]
+    const customs = await db.getAllAsync<{ id: string; name: string }>(
+      'SELECT id, name FROM custom_feeds'
     );
+    const customNames = customs
+      .filter(c => enabledIds.has(c.id))
+      .map(c => c.name);
+
+    return { names: [...builtinNames, ...customNames], hasPrefs: true };
   }
 
   async getArticlesBySource(sourceName: string, limit = 50): Promise<Article[]> {
@@ -208,7 +258,17 @@ class NativeDatabase implements DatabaseInterface {
     const enabledIds = new Set(
       allPrefs.filter(r => r.enabled === 1).map(r => r.feed_id)
     );
-    return FEED_SOURCES.filter(source => enabledIds.has(source.id));
+
+    const customs = await db.getAllAsync<{ id: string; name: string; url: string; icon?: string }>(
+      'SELECT id, name, url, icon FROM custom_feeds'
+    );
+
+    const builtinSources = FEED_SOURCES.filter(source => enabledIds.has(source.id));
+    const customSources: FeedSource[] = customs
+      .filter(c => enabledIds.has(c.id))
+      .map(c => ({ id: c.id, name: c.name, url: c.url, icon: c.icon, enabled: true }));
+
+    return [...builtinSources, ...customSources];
   }
 
   async getFilteredArticles(filters: FilterState, searchText?: string, limit = 50, offset = 0): Promise<Article[]> {
@@ -227,11 +287,6 @@ class NativeDatabase implements DatabaseInterface {
       const pattern = `%${searchText.trim()}%`;
       conditions.push('(title LIKE ? OR summary LIKE ?)');
       params.push(pattern, pattern);
-    }
-
-    if (filters.categories.length > 0) {
-      conditions.push(`category IN (${filters.categories.map(() => '?').join(',')})`);
-      params.push(...filters.categories);
     }
 
     if (filters.sourceNames.length > 0) {
@@ -397,8 +452,8 @@ class NativeDatabase implements DatabaseInterface {
   async addCustomFeed(feed: CustomFeed): Promise<void> {
     const db = await this.getDb();
     await db.runAsync(
-      'INSERT OR REPLACE INTO custom_feeds (id, name, url, rss_url, category, icon, added_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [feed.id, feed.name, feed.url, feed.rss_url, feed.category, feed.icon ?? null, feed.added_at]
+      'INSERT OR REPLACE INTO custom_feeds (id, name, url, rss_url, icon, added_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [feed.id, feed.name, feed.url, feed.rss_url, feed.icon ?? null, feed.added_at]
     );
   }
 
@@ -424,6 +479,16 @@ class NativeDatabase implements DatabaseInterface {
   async clearCache(): Promise<void> {
     const db = await this.getDb();
     await db.runAsync('DELETE FROM articles WHERE is_bookmarked = 0');
+  }
+
+  async retainOnlyFeeds(keepIds: Set<string>): Promise<void> {
+    const db = await this.getDb();
+    const placeholders = [...keepIds].map(() => '?').join(',');
+    await db.withTransactionAsync(async () => {
+      await db.runAsync(`DELETE FROM custom_feeds WHERE id NOT IN (${placeholders})`, [...keepIds]);
+      await db.runAsync(`DELETE FROM feed_preferences WHERE feed_id NOT IN (${placeholders})`, [...keepIds]);
+      await db.runAsync(`DELETE FROM articles WHERE source_name NOT IN (SELECT name FROM custom_feeds WHERE id IN (${placeholders}))`, [...keepIds]);
+    });
   }
 }
 
@@ -493,13 +558,6 @@ class WebDatabase implements DatabaseInterface {
     return { names, hasPrefs: true };
   }
 
-  async getArticlesByCategory(category: string, limit = 50, offset = 0): Promise<Article[]> {
-    return this.getArticles()
-      .filter(a => a.category === category)
-      .sort((a, b) => b.pub_date - a.pub_date)
-      .slice(offset, offset + limit);
-  }
-
   async getArticlesBySource(sourceName: string, limit = 50): Promise<Article[]> {
     const articles = this.getArticles().filter(a => a.source_name === sourceName);
     const breaking = articles.filter(a => a.importance_score === 5).slice(0, 10);
@@ -543,11 +601,6 @@ class WebDatabase implements DatabaseInterface {
       articles = articles.filter(a =>
         a.title.toLowerCase().includes(q) || a.summary?.toLowerCase().includes(q)
       );
-    }
-
-    if (filters.categories.length > 0) {
-      const catSet = new Set(filters.categories);
-      articles = articles.filter(a => catSet.has(a.category));
     }
 
     if (filters.sourceNames.length > 0) {
@@ -703,6 +756,24 @@ class WebDatabase implements DatabaseInterface {
     const articles = this.getArticles().filter(a => a.is_bookmarked);
     this.saveArticlesToStorage(articles);
   }
+
+  async retainOnlyFeeds(keepIds: Set<string>): Promise<void> {
+    const customFeeds = this.getCustomFeedsSync().filter(f => keepIds.has(f.id));
+    localStorage.setItem(this.CUSTOM_FEEDS_KEY, JSON.stringify(customFeeds));
+
+    const feedsJson = localStorage.getItem(this.FEEDS_KEY);
+    if (feedsJson) {
+      const feeds = JSON.parse(feedsJson) as Record<string, boolean>;
+      for (const id of Object.keys(feeds)) {
+        if (!keepIds.has(id)) delete feeds[id];
+      }
+      localStorage.setItem(this.FEEDS_KEY, JSON.stringify(feeds));
+    }
+
+    const keepNames = new Set(customFeeds.map(f => f.name));
+    const articles = this.getArticles().filter(a => keepNames.has(a.source_name));
+    this.saveArticlesToStorage(articles);
+  }
 }
 
 // ─── Singleton ───────────────────────────────────────────────────────────────
@@ -732,10 +803,6 @@ export function pruneOldArticles(): Promise<number> {
 
 export function getDigestFeed(limit = 50, offset = 0, sortOrder: 'newest' | 'oldest' = 'newest'): Promise<Article[]> {
   return getDb().getDigestFeed(limit, offset, sortOrder);
-}
-
-export function getArticlesByCategory(category: string, limit = 50, offset = 0): Promise<Article[]> {
-  return getDb().getArticlesByCategory(category, limit, offset);
 }
 
 export function getArticlesBySource(sourceName: string, limit = 50): Promise<Article[]> {
@@ -839,19 +906,22 @@ export function clearCache(): Promise<void> {
 }
 
 export async function seedCustomFeedsIfNeeded(): Promise<void> {
-  const existing = await getCustomFeeds();
-  if (existing.length > 0) return;
-
   const { FEED_SOURCES } = await import('@/constants/Feeds');
-  for (const source of FEED_SOURCES) {
-    await addCustomFeed({
-      id: source.id,
-      name: source.name,
-      url: source.url,
-      rss_url: source.url,
-      category: source.category,
-      icon: source.icon,
-      added_at: Date.now(),
-    });
+  const keepIds = new Set(FEED_SOURCES.map(s => s.id));
+
+  const existing = await getCustomFeeds();
+  const hasBuiltin = existing.some(f => keepIds.has(f.id));
+
+  if (!hasBuiltin) {
+    for (const source of FEED_SOURCES) {
+      await addCustomFeed({
+        id: source.id,
+        name: source.name,
+        url: source.url,
+        rss_url: source.url,
+        icon: source.icon,
+        added_at: Date.now(),
+      });
+    }
   }
 }

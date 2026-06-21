@@ -8,7 +8,7 @@ import { Spacing } from '@/constants/Spacing';
 import { Article } from '@/types';
 import { getArticleById, toggleBookmark, markRead } from '@/services/db';
 import { formatDateTime } from '@/utils/date';
-import { ImportanceStars, CategoryChip, Button, SourceIcon } from '@/components/ui';
+import { ImportanceStars, Button, SourceIcon } from '@/components/ui';
 import { Bookmark, ExternalLink, Share2 } from 'lucide-react-native';
 import { FEED_SOURCES } from '@/constants/Feeds';
 
@@ -126,7 +126,6 @@ export default function ArticleScreen() {
         <View style={styles.hero}>
           <View style={styles.heroHeader}>
             <ImportanceStars score={article.importance_score} size={14} color={colors.warning} />
-            <CategoryChip category={article.category} />
           </View>
 
           <Text style={[styles.title, { color: colors.textPrimary }]}>

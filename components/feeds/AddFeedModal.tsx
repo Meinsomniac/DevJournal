@@ -10,18 +10,19 @@ import {
   ActivityIndicator,
   ScrollView,
   Keyboard,
+  Image,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '@/hooks/useTheme';
 import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
-import { ArticleCategory } from '@/types';
 import { addCustomFeed, setFeedEnabled } from '@/services/db';
 import {
   discoverRssFromUrl,
   validateRssUrl,
   DiscoveredFeed,
 } from '@/services/feedDiscovery';
-import { X, Plus, Globe, Link as LinkIcon } from 'lucide-react-native';
+import { X, Plus, Globe, AlertTriangle } from 'lucide-react-native';
 
 interface AddFeedModalProps {
   visible: boolean;
@@ -30,26 +31,16 @@ interface AddFeedModalProps {
   existingFeedUrls: Set<string>;
 }
 
-const CATEGORY_COLORS: Record<ArticleCategory, string> = {
-  AI: '#8B5CF6',
-  Frontend: '#61DAFB',
-  Backend: '#10B981',
-  Infrastructure: '#F59E0B',
-  Security: '#EF4444',
-  Career: '#EC4899',
-  Tools: '#6366F1',
-  General: '#94A3B8',
-};
-
 export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }: AddFeedModalProps) {
   const { colors } = useTheme();
   const [url, setUrl] = useState('');
   const [results, setResults] = useState<DiscoveredFeed[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [httpWarning, setHttpWarning] = useState(false);
   const [addingFeed, setAddingFeed] = useState<DiscoveredFeed | null>(null);
-  const [confirmCategory, setConfirmCategory] = useState<ArticleCategory>('General');
-  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  const [customName, setCustomName] = useState('');
+  const [customIcon, setCustomIcon] = useState('');
   const inputRef = useRef<TextInput>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
   const prevVisible = useRef(false);
@@ -61,21 +52,24 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
       setResults([]);
       setLoading(false);
       setError('');
+      setHttpWarning(false);
       setAddingFeed(null);
-      setShowCategoryPicker(false);
+      setCustomName('');
+      setCustomIcon('');
     }
     prevVisible.current = visible;
   }, [visible]);
 
   const handleUrlChange = useCallback((text: string) => {
-    setUrl(text);
+    setHttpWarning(/^http:\/\//i.test(text));
+    const cleaned = text.replace(/^https?:\/\//i, '');
+    setUrl(cleaned);
     setAddingFeed(null);
-    setShowCategoryPicker(false);
     setError('');
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    if (text.trim().length < 4) {
+    if (cleaned.trim().length < 4) {
       setResults([]);
       setLoading(false);
       return;
@@ -85,9 +79,8 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
       setLoading(true);
       setError('');
 
-      discoverRssFromUrl(text).then(discovered => {
+      discoverRssFromUrl(`https://${cleaned}`).then(discovered => {
         const filtered = discovered.filter(f => !existingFeedUrls.has(f.rssUrl));
-        console.log({filtered})
         setResults(filtered);
         setLoading(false);
         if (filtered.length === 0) {
@@ -103,12 +96,13 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
   const handleSubmit = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    if (!url.trim()) return;
+    const clean = url.replace(/^https?:\/\//i, '');
+    if (!clean.trim()) return;
 
     setLoading(true);
     setError('');
 
-    discoverRssFromUrl(url).then(discovered => {
+    discoverRssFromUrl(`https://${clean}`).then(discovered => {
       const filtered = discovered.filter(f => !existingFeedUrls.has(f.rssUrl));
       setResults(filtered);
       setLoading(false);
@@ -123,8 +117,8 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
 
   const handleAddFeed = useCallback((feed: DiscoveredFeed) => {
     setAddingFeed(feed);
-    setConfirmCategory(feed.category);
-    setShowCategoryPicker(true);
+    setCustomName(feed.name);
+    setCustomIcon(feed.favicon);
   }, []);
 
   const handleConfirmAdd = useCallback(async () => {
@@ -138,22 +132,21 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
       setLoading(false);
       setError('Invalid RSS feed. Please try a different URL.');
       setAddingFeed(null);
-      setShowCategoryPicker(false);
       return;
     }
 
-    const id = addingFeed.name
+    const name = customName.trim() || addingFeed.name;
+    const id = name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '') + '-' + Date.now();
 
     await addCustomFeed({
       id,
-      name: addingFeed.name,
+      name,
       url: addingFeed.url,
       rss_url: addingFeed.rssUrl,
-      category: confirmCategory,
-      icon: addingFeed.favicon,
+      icon: customIcon || addingFeed.favicon,
       added_at: Date.now(),
     });
 
@@ -161,16 +154,29 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
 
     setLoading(false);
     setAddingFeed(null);
-    setShowCategoryPicker(false);
     setUrl('');
     setResults([]);
     onFeedAdded();
     onClose();
-  }, [addingFeed, confirmCategory, onFeedAdded, onClose]);
+  }, [addingFeed, customName, customIcon, onFeedAdded, onClose]);
+
+  const handlePickIcon = useCallback(async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') return;
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (!result.canceled) {
+      setCustomIcon(result.assets[0].uri);
+    }
+  }, []);
 
   const handleCancelAdd = useCallback(() => {
     setAddingFeed(null);
-    setShowCategoryPicker(false);
   }, []);
 
   return (
@@ -192,11 +198,11 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
 
           {/* URL Input */}
           <View style={[styles.searchContainer, { backgroundColor: colors.bgTertiary, borderColor: colors.borderLight }]}>
-            <LinkIcon size={18} color={colors.textTertiary} />
+            <Text style={[Typography.bodyMedium, { color: colors.textTertiary }]}>https://</Text>
             <TextInput
               ref={inputRef}
               style={[styles.searchInput, { color: colors.textPrimary }]}
-              placeholder="Paste a website URL..."
+              placeholder="example.com"
               placeholderTextColor={colors.textTertiary}
               value={url}
               onChangeText={handleUrlChange}
@@ -207,7 +213,7 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
               returnKeyType="search"
             />
             {url.length > 0 && (
-              <TouchableOpacity onPress={() => { setUrl(''); setResults([]); setError(''); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <TouchableOpacity onPress={() => { setUrl(''); setResults([]); setError(''); setHttpWarning(false); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 <X size={18} color={colors.textTertiary} />
               </TouchableOpacity>
             )}
@@ -219,6 +225,16 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
               <ActivityIndicator size="small" color={colors.brandPrimary} />
               <Text style={[Typography.bodySmall, { color: colors.textTertiary, marginLeft: Spacing.sm }]}>
                 Discovering feeds...
+              </Text>
+            </View>
+          )}
+
+          {/* HTTP Warning */}
+          {httpWarning && (
+            <View style={[styles.errorContainer, { backgroundColor: colors.warning + '15' }]}>
+              <AlertTriangle size={14} color={colors.warning} />
+              <Text style={[Typography.bodySmall, { color: colors.warning, marginLeft: Spacing.xs }]}>
+                Only HTTPS is supported. Using secure connection.
               </Text>
             </View>
           )}
@@ -236,8 +252,6 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
           {results.length > 0 && (
             <ScrollView style={styles.resultsContainer} showsVerticalScrollIndicator={false}>
               {results.map((feed, index) => {
-                const isAdding = addingFeed?.rssUrl === feed.rssUrl && showCategoryPicker;
-
                 return (
                   <View key={`${feed.rssUrl}-${index}`}>
                     <View style={[styles.resultCard, { backgroundColor: colors.bgCard, borderColor: colors.borderLight }]}>
@@ -251,11 +265,6 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
                         <Text style={[Typography.labelSmall, { color: colors.textTertiary }]} numberOfLines={1}>
                           {feed.rssUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}
                         </Text>
-                        <View style={[styles.categoryBadge, { backgroundColor: CATEGORY_COLORS[feed.category] + '20' }]}>
-                          <Text style={[Typography.labelSmall, { color: CATEGORY_COLORS[feed.category] }]}>
-                            {feed.category}
-                          </Text>
-                        </View>
                       </View>
                       <TouchableOpacity
                         style={[styles.addButton, { backgroundColor: colors.brandPrimary }]}
@@ -265,56 +274,74 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
                       </TouchableOpacity>
                     </View>
 
-                    {/* Category picker (inline) */}
-                    {isAdding && (
-                      <View style={[styles.categoryPicker, { backgroundColor: colors.bgTertiary }]}>
-                        <Text style={[Typography.labelMedium, { color: colors.textSecondary, marginBottom: Spacing.sm }]}>
-                          Category:
-                        </Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
-                          {(Object.keys(CATEGORY_COLORS) as ArticleCategory[]).map(cat => (
-                            <TouchableOpacity
-                              key={cat}
-                              style={[
-                                styles.categoryOption,
-                                {
-                                  backgroundColor: confirmCategory === cat
-                                    ? CATEGORY_COLORS[cat] + '30'
-                                    : colors.bgCard,
-                                  borderColor: confirmCategory === cat
-                                    ? CATEGORY_COLORS[cat]
-                                    : colors.borderLight,
-                                },
-                              ]}
-                              onPress={() => setConfirmCategory(cat)}
-                            >
-                              <Text style={[
-                                Typography.labelSmall,
-                                { color: confirmCategory === cat ? CATEGORY_COLORS[cat] : colors.textSecondary },
-                              ]}>
-                                {cat}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
-                        </ScrollView>
-                        <View style={styles.confirmActions}>
-                          <TouchableOpacity onPress={handleCancelAdd} style={styles.cancelButton}>
-                            <Text style={[Typography.labelMedium, { color: colors.textSecondary }]}>Cancel</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.confirmButton, { backgroundColor: colors.brandPrimary }]}
-                            onPress={handleConfirmAdd}
-                          >
-                            <Text style={[Typography.labelMedium, { color: colors.textInverse }]}>Confirm</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    )}
+
                   </View>
                 );
               })}
             </ScrollView>
           )}
+
+          {/* Confirm dialog */}
+          <Modal transparent visible={!!addingFeed} animationType="fade" onRequestClose={handleCancelAdd}>
+            <Pressable style={styles.confirmBackdrop} onPress={handleCancelAdd}>
+              <Pressable style={[styles.confirmDialog, { backgroundColor: colors.bgCard }]} onPress={e => e.stopPropagation()}>
+                {/* Icon picker */}
+                <TouchableOpacity onPress={handlePickIcon} style={styles.confirmIconPicker}>
+                  <View style={[styles.confirmIconWrapper, { backgroundColor: colors.bgTertiary }]}>
+                    {customIcon ? (
+                      <Image source={{ uri: customIcon }} style={styles.confirmIconImage} />
+                    ) : (
+                      <Globe size={32} color={colors.textSecondary} />
+                    )}
+                  </View>
+                  <Text style={[Typography.labelSmall, { color: colors.brandPrimary, marginTop: Spacing.xs }]}>
+                    Change Icon
+                  </Text>
+                </TouchableOpacity>
+
+                <Text style={[Typography.headlineSmall, { color: colors.textPrimary, textAlign: 'center', marginTop: Spacing.sm }]}>
+                  Add Feed
+                </Text>
+
+                {addingFeed && (
+                  <>
+                    {/* Name input */}
+                    <Text style={[Typography.labelMedium, { color: colors.textSecondary, alignSelf: 'flex-start', marginTop: Spacing.lg }]}>
+                      Name
+                    </Text>
+                    <TextInput
+                      style={[styles.confirmNameInput, { color: colors.textPrimary, backgroundColor: colors.bgTertiary, borderColor: colors.borderLight }]}
+                      value={customName}
+                      onChangeText={setCustomName}
+                      placeholder="Feed name"
+                      placeholderTextColor={colors.textTertiary}
+                      autoCorrect={false}
+                    />
+
+                    {/* URL display */}
+                    <Text style={[Typography.labelMedium, { color: colors.textSecondary, alignSelf: 'flex-start', marginTop: Spacing.md }]}>
+                      Feed URL
+                    </Text>
+                    <Text style={[Typography.bodySmall, { color: colors.textTertiary, alignSelf: 'flex-start', marginTop: Spacing.xs }]} numberOfLines={2}>
+                      {addingFeed.rssUrl.replace(/^https?:\/\//, '')}
+                    </Text>
+                  </>
+                )}
+
+                <View style={styles.confirmActions}>
+                  <TouchableOpacity onPress={handleCancelAdd} style={styles.cancelButton}>
+                    <Text style={[Typography.labelMedium, { color: colors.textSecondary }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.confirmAddButton, { backgroundColor: colors.brandPrimary }]}
+                    onPress={handleConfirmAdd}
+                  >
+                    <Text style={[Typography.labelMedium, { color: colors.textInverse }]}>Add Feed</Text>
+                  </TouchableOpacity>
+                </View>
+              </Pressable>
+            </Pressable>
+          </Modal>
 
           {/* Empty state */}
           {!loading && results.length === 0 && !error && url.length >= 4 && (
@@ -375,6 +402,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     padding: Spacing.md,
     borderRadius: BorderRadius.md,
     marginBottom: Spacing.sm,
@@ -402,13 +431,6 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
-  categoryBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.xs,
-    marginTop: Spacing.xs,
-  },
   addButton: {
     width: 32,
     height: 32,
@@ -416,34 +438,62 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  categoryPicker: {
+  confirmBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  confirmDialog: {
+    width: '85%',
+    padding: Spacing.xxl,
+    borderRadius: BorderRadius.lg,
+    alignItems: 'center',
+  },
+  confirmIconPicker: {
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  confirmIconWrapper: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  confirmIconImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+  },
+  confirmNameInput: {
+    width: '100%',
+    fontSize: 16,
     padding: Spacing.md,
     borderRadius: BorderRadius.md,
-    marginBottom: Spacing.sm,
-    marginLeft: Spacing.md + 40 + Spacing.md,
-  },
-  categoryScroll: {
-    marginBottom: Spacing.sm,
-  },
-  categoryOption: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.chip,
     borderWidth: 1,
-    marginRight: Spacing.xs,
+    marginTop: Spacing.xs,
   },
   confirmActions: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: Spacing.sm,
+    justifyContent: 'center',
+    gap: Spacing.md,
+    marginTop: Spacing.xl,
+    width: '100%',
   },
   cancelButton: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
+    flex: 1,
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
-  confirmButton: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
+  confirmAddButton: {
+    flex: 1,
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
     borderRadius: BorderRadius.md,
   },
   emptyState: {

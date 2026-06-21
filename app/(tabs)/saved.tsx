@@ -6,24 +6,24 @@ import {
   Pressable,
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
-import { useRouter, useNavigation } from 'expo-router';
+import { useNavigation } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '@/hooks/useTheme';
+import { useApp } from '@/context/AppContext';
 import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { Article } from '@/types';
-import { getBookmarks, getHistory, deleteBookmark } from '@/services/db';
+import { getBookmarks, getHistory, toggleBookmark } from '@/services/db';
 import { Header } from '@/components/common/Header';
-import { ImportanceStars, CategoryChip, EmptyState } from '@/components/ui';
-import { formatRelative, getDayName } from '@/utils/date';
-import { Bookmark, History, Trash2, ChevronRight } from 'lucide-react-native';
+import { EmptyState } from '@/components/ui';
+import { getDayName } from '@/utils/date';
+import { Bookmark, History } from 'lucide-react-native';
+import { DigestCard } from '@/components/digest';
 
 type TabType = 'bookmarks' | 'history';
 
 export default function SavedScreen() {
-  const { colors } = useTheme();
+  const { colors, compactMode } = useApp();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const navigation = useNavigation();
 
   const [activeTab, setActiveTab] = useState<TabType>('bookmarks');
@@ -53,14 +53,10 @@ export default function SavedScreen() {
     return unsubscribe;
   }, [loadData, navigation]);
 
-  const handleRemoveBookmark = useCallback(async (id: string) => {
-    await deleteBookmark(id);
+  const handleToggleBookmark = useCallback(async (id: string) => {
+    await toggleBookmark(id);
     await loadData();
   }, [loadData]);
-
-  const handleOpenArticle = useCallback((article: Article) => {
-    router.push(`/article/${article.id}`);
-  }, [router]);
 
   const displayData = activeTab === 'bookmarks' ? bookmarks : history;
 
@@ -78,47 +74,12 @@ export default function SavedScreen() {
   }, [history, activeTab]);
 
   const renderBookmarkItem = useCallback(({ item }: { item: Article }) => (
-    <Pressable
-      style={[styles.card, { backgroundColor: colors.bgCard }]}
-      onPress={() => handleOpenArticle(item)}
-    >
-      <View style={styles.cardHeader}>
-        <ImportanceStars score={item.importance_score} size={10} />
-        <CategoryChip category={item.category} size="small" />
-      </View>
-      <Text
-        style={[Typography.titleMedium, { color: colors.textPrimary }]}
-        numberOfLines={2}
-      >
-        {item.title}
-      </Text>
-      <View style={styles.cardMeta}>
-        <Text style={[Typography.labelSmall, { color: colors.textSecondary }]}>
-          {item.source_name} · Saved {formatRelative(item.pub_date)}
-        </Text>
-      </View>
-      <View style={styles.cardActions}>
-        <Pressable
-          style={styles.cardAction}
-          onPress={() => handleOpenArticle(item)}
-        >
-          <ChevronRight size={16} color={colors.brandPrimary} />
-          <Text style={[Typography.labelMedium, { color: colors.brandPrimary }]}>
-            Read
-          </Text>
-        </Pressable>
-        <Pressable
-          style={styles.cardAction}
-          onPress={() => handleRemoveBookmark(item.id)}
-        >
-          <Trash2 size={16} color={colors.error} />
-          <Text style={[Typography.labelMedium, { color: colors.error }]}>
-            Remove
-          </Text>
-        </Pressable>
-      </View>
-    </Pressable>
-  ), [colors, handleOpenArticle, handleRemoveBookmark]);
+    <DigestCard
+      article={item}
+      variant={compactMode ? 'compact' : 'full'}
+      onBookmark={handleToggleBookmark}
+    />
+  ), [compactMode, handleToggleBookmark]);
 
   const renderHistorySection = () => {
     if (activeTab !== 'history') return null;
@@ -141,21 +102,12 @@ export default function SavedScreen() {
           {day}
         </Text>
         {articles.map((article) => (
-          <Pressable
+          <DigestCard
             key={article.id}
-            style={[styles.historyItem, { backgroundColor: colors.bgCard }]}
-            onPress={() => handleOpenArticle(article)}
-          >
-            <Text
-              style={[Typography.bodyMedium, { color: colors.textPrimary }]}
-              numberOfLines={1}
-            >
-              {article.title}
-            </Text>
-            <Text style={[Typography.labelSmall, { color: colors.textTertiary }]}>
-              {formatRelative(article.pub_date)}
-            </Text>
-          </Pressable>
+            article={article}
+            variant={compactMode ? 'compact' : 'full'}
+            onBookmark={handleToggleBookmark}
+          />
         ))}
       </View>
     ));
@@ -298,38 +250,8 @@ const styles = StyleSheet.create({
   listContent: {
     padding: Spacing.lg,
   },
-  card: {
-    padding: Spacing.md,
-    borderRadius: BorderRadius.md,
-    marginBottom: Spacing.sm,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.xs,
-  },
-  cardMeta: {
-    marginTop: Spacing.xs,
-    marginBottom: Spacing.sm,
-  },
-  cardActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: Spacing.md,
-  },
-  cardAction: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    padding: Spacing.sm,
-  },
   historySection: {
     marginBottom: Spacing.lg,
-  },
-  historyItem: {
-    padding: Spacing.md,
-    borderRadius: BorderRadius.sm,
-    marginTop: Spacing.sm,
+    gap: Spacing.sm,
   },
 });

@@ -1,4 +1,3 @@
-export { CategoryChip } from './CategoryChip';
 export { ImportanceStars } from './ImportanceStars';
 export { Button } from './Button';
 export { Skeleton, ArticleSkeleton } from './Skeleton';

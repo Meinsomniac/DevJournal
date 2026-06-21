@@ -33,35 +33,14 @@ const fav = (domain: string) =>
 // ─── Built-in feeds (seeded into DB on first launch) ────────────────────────
 
 const BUILTIN_FEEDS: CustomFeed[] = [
-  { id: 'openai', name: 'OpenAI Blog', url: 'https://openai.com/blog/rss.xml', rss_url: 'https://openai.com/blog/rss.xml', category: 'AI', icon: fav('openai.com'), added_at: 0 },
-  { id: 'anthropic', name: 'Anthropic', url: 'https://raw.githubusercontent.com/taobojlen/anthropic-rss-feed/main/anthropic_news_rss.xml', rss_url: 'https://raw.githubusercontent.com/taobojlen/anthropic-rss-feed/main/anthropic_news_rss.xml', category: 'AI', icon: fav('anthropic.com'), added_at: 0 },
-  { id: 'huggingface', name: 'Hugging Face Blog', url: 'https://huggingface.co/blog/feed.xml', rss_url: 'https://huggingface.co/blog/feed.xml', category: 'AI', icon: fav('huggingface.co'), added_at: 0 },
-  { id: 'google-ai', name: 'Google AI Blog', url: 'https://blog.google/technology/ai/rss/', rss_url: 'https://blog.google/technology/ai/rss/', category: 'AI', icon: fav('blog.google'), added_at: 0 },
-  { id: 'martin-fowler', name: 'Martin Fowler', url: 'https://martinfowler.com/feed.atom', rss_url: 'https://martinfowler.com/feed.atom', category: 'AI', icon: fav('martinfowler.com'), added_at: 0 },
-  { id: 'react-native', name: 'React Native Blog', url: 'https://reactnative.dev/blog/feed.xml', rss_url: 'https://reactnative.dev/blog/feed.xml', category: 'Frontend', icon: fav('reactnative.dev'), added_at: 0 },
-  { id: 'expo', name: 'Expo Blog', url: 'https://blog.expo.dev/feed', rss_url: 'https://blog.expo.dev/feed', category: 'Frontend', icon: fav('expo.dev'), added_at: 0 },
-  { id: 'react', name: 'React Blog', url: 'https://react.dev/rss.xml', rss_url: 'https://react.dev/rss.xml', category: 'Frontend', icon: fav('react.dev'), added_at: 0 },
-  { id: 'vercel', name: 'Vercel Blog', url: 'https://vercel.com/atom', rss_url: 'https://vercel.com/atom', category: 'Frontend', icon: fav('vercel.com'), added_at: 0 },
-  { id: 'nextjs', name: 'Next.js Blog', url: 'https://nextjs.org/feed.xml', rss_url: 'https://nextjs.org/feed.xml', category: 'Frontend', icon: fav('nextjs.org'), added_at: 0 },
-  { id: 'css-tricks', name: 'CSS-Tricks', url: 'https://css-tricks.com/feed/', rss_url: 'https://css-tricks.com/feed/', category: 'Frontend', icon: fav('css-tricks.com'), added_at: 0 },
-  { id: 'smashing', name: 'Smashing Magazine', url: 'https://www.smashingmagazine.com/feed/', rss_url: 'https://www.smashingmagazine.com/feed/', category: 'Frontend', icon: fav('smashingmagazine.com'), added_at: 0 },
-  { id: 'github', name: 'GitHub Blog', url: 'https://github.blog/feed/', rss_url: 'https://github.blog/feed/', category: 'Tools', icon: fav('github.com'), added_at: 0 },
-  { id: 'typescript', name: 'TypeScript', url: 'https://devblogs.microsoft.com/typescript/feed/', rss_url: 'https://devblogs.microsoft.com/typescript/feed/', category: 'Tools', icon: fav('devblogs.microsoft.com'), added_at: 0 },
-  { id: 'stripe', name: 'Stripe Blog', url: 'https://stripe.com/blog/feed.rss', rss_url: 'https://stripe.com/blog/feed.rss', category: 'Tools', icon: fav('stripe.com'), added_at: 0 },
-  { id: 'nodejs', name: 'Node.js Blog', url: 'https://nodejs.org/en/feed/blog.xml', rss_url: 'https://nodejs.org/en/feed/blog.xml', category: 'Backend', icon: fav('nodejs.org'), added_at: 0 },
-  { id: 'meta-eng', name: 'Engineering at Meta', url: 'https://engineering.fb.com/feed/', rss_url: 'https://engineering.fb.com/feed/', category: 'Backend', icon: fav('engineering.fb.com'), added_at: 0 },
-  { id: 'infoq', name: 'InfoQ', url: 'https://www.infoq.com/feed/', rss_url: 'https://www.infoq.com/feed/', category: 'Backend', icon: fav('infoq.com'), added_at: 0 },
-  { id: 'kubernetes', name: 'Kubernetes Blog', url: 'https://kubernetes.io/feed.xml', rss_url: 'https://kubernetes.io/feed.xml', category: 'Infrastructure', icon: fav('kubernetes.io'), added_at: 0 },
-  { id: 'aws', name: 'AWS News', url: 'https://aws.amazon.com/about-aws/whats-new/recent/feed/', rss_url: 'https://aws.amazon.com/about-aws/whats-new/recent/feed/', category: 'Infrastructure', icon: fav('aws.amazon.com'), added_at: 0 },
-  { id: 'cloudflare', name: 'Cloudflare Blog', url: 'https://blog.cloudflare.com/rss/', rss_url: 'https://blog.cloudflare.com/rss/', category: 'Infrastructure', icon: fav('cloudflare.com'), added_at: 0 },
-  { id: 'theverge', name: 'The Verge', url: 'https://www.theverge.com/rss/index.xml', rss_url: 'https://www.theverge.com/rss/index.xml', category: 'General', icon: fav('theverge.com'), added_at: 0 },
-  { id: 'arstechnica', name: 'Ars Technica', url: 'https://arstechnica.com/feed/', rss_url: 'https://arstechnica.com/feed/', category: 'General', icon: fav('arstechnica.com'), added_at: 0 },
-  { id: 'wired', name: 'Wired', url: 'https://www.wired.com/feed/rss', rss_url: 'https://www.wired.com/feed/rss', category: 'General', icon: fav('wired.com'), added_at: 0 },
-  { id: 'venturebeat', name: 'VentureBeat', url: 'https://venturebeat.com/feed/', rss_url: 'https://venturebeat.com/feed/', category: 'General', icon: fav('venturebeat.com'), added_at: 0 },
-  { id: 'techcrunch-dev', name: 'TechCrunch', url: 'https://techcrunch.com/feed/', rss_url: 'https://techcrunch.com/feed/', category: 'General', icon: fav('techcrunch.com'), added_at: 0 },
-  { id: 'hackernews', name: 'Hacker News', url: 'https://hnrss.org/frontpage', rss_url: 'https://hnrss.org/frontpage', category: 'General', icon: fav('news.ycombinator.com'), added_at: 0 },
-  { id: 'devto', name: 'DEV Community', url: 'https://dev.to/feed', rss_url: 'https://dev.to/feed', category: 'General', icon: fav('dev.to'), added_at: 0 },
-  { id: 'theregister', name: 'The Register', url: 'https://www.theregister.com/headlines.atom', rss_url: 'https://www.theregister.com/headlines.atom', category: 'General', icon: fav('theregister.com'), added_at: 0 },
+  { id: 'theverge', name: 'The Verge', url: 'https://www.theverge.com/rss/index.xml', rss_url: 'https://www.theverge.com/rss/index.xml', icon: fav('theverge.com'), added_at: 0 },
+  { id: 'arstechnica', name: 'Ars Technica', url: 'https://arstechnica.com/feed/', rss_url: 'https://arstechnica.com/feed/', icon: fav('arstechnica.com'), added_at: 0 },
+  { id: 'wired', name: 'Wired', url: 'https://www.wired.com/feed/rss', rss_url: 'https://www.wired.com/feed/rss', icon: fav('wired.com'), added_at: 0 },
+  { id: 'venturebeat', name: 'VentureBeat', url: 'https://venturebeat.com/feed/', rss_url: 'https://venturebeat.com/feed/', icon: fav('venturebeat.com'), added_at: 0 },
+  { id: 'techcrunch-dev', name: 'TechCrunch', url: 'https://techcrunch.com/feed/', rss_url: 'https://techcrunch.com/feed/', icon: fav('techcrunch.com'), added_at: 0 },
+  { id: 'hackernews', name: 'Hacker News', url: 'https://hnrss.org/frontpage', rss_url: 'https://hnrss.org/frontpage', icon: fav('news.ycombinator.com'), added_at: 0 },
+  { id: 'devto', name: 'DEV Community', url: 'https://dev.to/feed', rss_url: 'https://dev.to/feed', icon: fav('dev.to'), added_at: 0 },
+  { id: 'theregister', name: 'The Register', url: 'https://www.theregister.com/headlines.atom', rss_url: 'https://www.theregister.com/headlines.atom', icon: fav('theregister.com'), added_at: 0 },
 ];
 
 const BUILTIN_IDS = new Set(BUILTIN_FEEDS.map(f => f.id));
@@ -78,7 +57,6 @@ interface FeedRowProps {
 
 const FeedRow = React.memo(function FeedRow({ feed, enabled, isCustom, onToggle, onDelete }: FeedRowProps) {
   const { colors } = useTheme();
-  const categoryColor = colors[`cat${feed.category}` as keyof typeof colors] || colors.brandPrimary;
 
   return (
     <TouchableOpacity
@@ -90,15 +68,12 @@ const FeedRow = React.memo(function FeedRow({ feed, enabled, isCustom, onToggle,
         iconUri={feed.icon}
         name={feed.name}
         size={40}
-        backgroundColor={categoryColor + '20'}
-        color={categoryColor}
+        backgroundColor={colors.brandPrimary + '20'}
+        color={colors.brandPrimary}
       />
       <View style={styles.feedInfo}>
         <Text style={[Typography.titleSmall, { color: colors.textPrimary }]}>
           {feed.name}
-        </Text>
-        <Text style={[Typography.labelSmall, { color: colors.textTertiary }]}>
-          {feed.category}
         </Text>
       </View>
       <Switch
@@ -170,13 +145,17 @@ export default function FeedsScreen() {
     bumpDataVersion();
   }, [bumpDataVersion]);
 
+  const builtinFeeds = BUILTIN_FEEDS;
+  const customOnlyFeeds = customFeeds.filter(f => !BUILTIN_IDS.has(f.id));
+
   const handleToggleAll = useCallback(async (enable: boolean) => {
-    for (const feed of BUILTIN_FEEDS) {
+    const allFeeds = [...BUILTIN_FEEDS, ...customOnlyFeeds];
+    for (const feed of allFeeds) {
       await setFeedEnabled(feed.id, enable);
     }
-    setEnabledFeedsState(new Set(enable ? BUILTIN_FEEDS.map(f => f.id) : []));
+    setEnabledFeedsState(new Set(enable ? allFeeds.map(f => f.id) : []));
     bumpDataVersion();
-  }, [bumpDataVersion]);
+  }, [bumpDataVersion, customOnlyFeeds]);
 
   const handleDelete = useCallback((id: string, name: string) => {
     Alert.alert(
@@ -195,9 +174,6 @@ export default function FeedsScreen() {
       ]
     );
   }, [loadFeeds]);
-
-  const builtinFeeds = BUILTIN_FEEDS;
-  const customOnlyFeeds = customFeeds.filter(f => !BUILTIN_IDS.has(f.id));
 
   const sections: SectionData[] = [];
   builtinFeeds.forEach(f => sections.push({ type: 'feed', feed: f, isCustom: false }));
@@ -261,14 +237,14 @@ export default function FeedsScreen() {
             All Sources
           </Text>
           <Text style={[Typography.labelSmall, { color: colors.textTertiary }]}>
-            {enabledFeeds.size} of {builtinFeeds.length} enabled
+            {enabledFeeds.size} of {builtinFeeds.length + customOnlyFeeds.length} enabled
           </Text>
         </View>
         <Switch
-          value={enabledFeeds.size === builtinFeeds.length}
+          value={enabledFeeds.size === builtinFeeds.length + customOnlyFeeds.length}
           onValueChange={handleToggleAll}
           trackColor={{ false: colors.borderMedium, true: colors.brandPrimary + '50' }}
-          thumbColor={enabledFeeds.size === builtinFeeds.length ? colors.brandPrimary : colors.textTertiary}
+          thumbColor={enabledFeeds.size === builtinFeeds.length + customOnlyFeeds.length ? colors.brandPrimary : colors.textTertiary}
         />
       </View>
 
