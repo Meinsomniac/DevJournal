@@ -24,11 +24,8 @@ import {
 } from '@/services/db';
 import { Header } from '@/components/common/Header';
 import { SourceIcon } from '@/components/ui';
-// TODO: Re-enable when feed discovery is fixed
-// import { AddFeedModal } from '@/components/feeds/AddFeedModal';
-import { Trash2 } from 'lucide-react-native';
-// TODO: Re-enable when feed discovery is fixed
-// import { Plus, Trash2 } from 'lucide-react-native';
+import { AddFeedModal } from '@/components/feeds/AddFeedModal';
+import { Plus, Trash2 } from 'lucide-react-native';
 
 const fav = (domain: string) =>
   `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
@@ -104,7 +101,13 @@ const FeedRow = React.memo(function FeedRow({ feed, enabled, isCustom, onToggle,
           {feed.category}
         </Text>
       </View>
-      {isCustom ? (
+      <Switch
+        value={enabled}
+        onValueChange={(value) => onToggle(feed.id, value)}
+        trackColor={{ false: colors.borderMedium, true: colors.brandPrimary + '50' }}
+        thumbColor={enabled ? colors.brandPrimary : colors.textTertiary}
+      />
+      {isCustom && (
         <TouchableOpacity
           onPress={() => onDelete(feed.id, feed.name)}
           style={styles.deleteButton}
@@ -112,13 +115,6 @@ const FeedRow = React.memo(function FeedRow({ feed, enabled, isCustom, onToggle,
         >
           <Trash2 size={18} color={colors.error} />
         </TouchableOpacity>
-      ) : (
-        <Switch
-          value={enabled}
-          onValueChange={(value) => onToggle(feed.id, value)}
-          trackColor={{ false: colors.borderMedium, true: colors.brandPrimary + '50' }}
-          thumbColor={enabled ? colors.brandPrimary : colors.textTertiary}
-        />
       )}
     </TouchableOpacity>
   );
@@ -137,8 +133,7 @@ export default function FeedsScreen() {
   const insets = useSafeAreaInsets();
   const [enabledFeeds, setEnabledFeedsState] = useState<Set<string>>(new Set());
   const [customFeeds, setCustomFeeds] = useState<CustomFeed[]>([]);
-  // TODO: Re-enable when feed discovery is fixed
-  // const [showAddModal, setShowAddModal] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
 
   const loadFeeds = useCallback(async () => {
     try {
@@ -202,16 +197,14 @@ export default function FeedsScreen() {
   }, [loadFeeds]);
 
   const builtinFeeds = BUILTIN_FEEDS;
-  // TODO: Re-enable when feed discovery is fixed
-  // const customOnlyFeeds = customFeeds.filter(f => !BUILTIN_IDS.has(f.id));
+  const customOnlyFeeds = customFeeds.filter(f => !BUILTIN_IDS.has(f.id));
 
   const sections: SectionData[] = [];
   builtinFeeds.forEach(f => sections.push({ type: 'feed', feed: f, isCustom: false }));
-  // TODO: Re-enable when feed discovery is fixed
-  // if (customOnlyFeeds.length > 0) {
-  //   sections.push({ type: 'custom-header', count: customOnlyFeeds.length });
-  //   customOnlyFeeds.forEach(f => sections.push({ type: 'feed', feed: f, isCustom: true }));
-  // }
+  if (customOnlyFeeds.length > 0) {
+    sections.push({ type: 'custom-header', count: customOnlyFeeds.length });
+    customOnlyFeeds.forEach(f => sections.push({ type: 'feed', feed: f, isCustom: true }));
+  }
 
   const renderItem = useCallback(({ item }: { item: SectionData }) => {
     if (item.type === 'builtin-header') return null;
@@ -234,21 +227,15 @@ export default function FeedsScreen() {
       <FeedRow
         feed={feed}
         enabled={enabledFeeds.has(feed.id)}
-        // TODO: Re-enable when feed discovery is fixed
-        // isCustom={isCustom}
-        isCustom={false}
+        isCustom={isCustom}
         onToggle={handleToggle}
-        // TODO: Re-enable when feed discovery is fixed
-        // onDelete={handleDelete}
-        onDelete={() => {}}
+        onDelete={handleDelete}
       />
     );
   }, [colors, enabledFeeds, handleToggle, handleDelete]);
 
   const keyExtractor = useCallback((item: SectionData) => {
     if (item.type === 'builtin-header') return '__builtin__';
-    // TODO: Re-enable when feed discovery is fixed
-    // if (item.type === 'custom-header') return '__custom__';
     if (item.type === 'custom-header') return '__custom__';
     return item.feed.id;
   }, []);
@@ -257,18 +244,15 @@ export default function FeedsScreen() {
     <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
       <Header
         title="Feeds"
-        // TODO: Re-enable when feed discovery is fixed
-        // subtitle={`${builtinFeeds.length + customOnlyFeeds.length} sources available`}
-        subtitle={`${builtinFeeds.length} sources available`}
-        // TODO: Re-enable when feed discovery is fixed
-        // rightContent={
-        //   <TouchableOpacity
-        //     onPress={() => setShowAddModal(true)}
-        //     style={[styles.addButton, { backgroundColor: colors.brandPrimary + '15' }]}
-        //   >
-        //     <Plus size={20} color={colors.brandPrimary} />
-        //   </TouchableOpacity>
-        // }
+        subtitle={`${builtinFeeds.length + customOnlyFeeds.length} sources available`}
+        rightContent={
+          <TouchableOpacity
+            onPress={() => setShowAddModal(true)}
+            style={[styles.addButton, { backgroundColor: colors.brandPrimary + '15' }]}
+          >
+            <Plus size={20} color={colors.brandPrimary} />
+          </TouchableOpacity>
+        }
       />
 
       <View style={[styles.disableAllRow, { borderColor: colors.borderLight }]}>
@@ -299,15 +283,12 @@ export default function FeedsScreen() {
         showsVerticalScrollIndicator={false}
       />
 
-      {/*
-      // TODO: Re-enable when feed discovery is fixed
       <AddFeedModal
         visible={showAddModal}
         onClose={() => setShowAddModal(false)}
         onFeedAdded={loadFeeds}
         existingFeedUrls={new Set(customFeeds.map(f => f.rss_url))}
       />
-      */}
     </View>
   );
 }

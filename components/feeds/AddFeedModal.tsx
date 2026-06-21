@@ -15,7 +15,7 @@ import { useTheme } from '@/hooks/useTheme';
 import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { ArticleCategory } from '@/types';
-import { addCustomFeed } from '@/services/db';
+import { addCustomFeed, setFeedEnabled } from '@/services/db';
 import {
   discoverRssFromUrl,
   validateRssUrl,
@@ -87,6 +87,7 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
 
       discoverRssFromUrl(text).then(discovered => {
         const filtered = discovered.filter(f => !existingFeedUrls.has(f.rssUrl));
+        console.log({filtered})
         setResults(filtered);
         setLoading(false);
         if (filtered.length === 0) {
@@ -155,6 +156,8 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
       icon: addingFeed.favicon,
       added_at: Date.now(),
     });
+
+    await setFeedEnabled(id, true);
 
     setLoading(false);
     setAddingFeed(null);
@@ -230,7 +233,7 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
           )}
 
           {/* Results */}
-          {!loading && results.length > 0 && (
+          {results.length > 0 && (
             <ScrollView style={styles.resultsContainer} showsVerticalScrollIndicator={false}>
               {results.map((feed, index) => {
                 const isAdding = addingFeed?.rssUrl === feed.rssUrl && showCategoryPicker;
@@ -377,7 +380,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   resultsContainer: {
-    flex: 1,
+    flexGrow: 1,
   },
   resultCard: {
     flexDirection: 'row',

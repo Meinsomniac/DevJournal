@@ -4,6 +4,7 @@ node_modules/
 # expo
 .expo/
 dist/
+android/
 web-build/
 expo-env.d.ts
 knowledge/
