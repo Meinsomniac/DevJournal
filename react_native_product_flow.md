@@ -177,7 +177,7 @@ app/
 1.  **Tabs persist** only on `(tabs)/*` routes.
 2.  **Article Screen** (`/article/:id`) **hides Tab Bar** (`headerShown: false` in stack, `tabBarHidden: true`).
 3.  **Settings** accessible via Header Right Button (Digest) OR Deep Link `/settings`.
-4.  **Deep Link Handling:** `techpulse://article/<sha256_id>` -> Opens Article Screen directly.
+4.  **Deep Link Handling:** `devjournal://article/<sha256_id>` -> Opens Article Screen directly.
 5.  **Notification Tap:** Payload `{ screen: 'article', id: '...' }` -> Navigate to Article.
 
 ---
@@ -381,7 +381,7 @@ export interface NativeAdProps {
 ```bash
 # 1. FINAL BUILD
 eas build --platform android --profile production --auto-submit=false
-# Output: techpulse-v1.0.0.aab
+# Output: devjournal-v1.0.0.aab
 
 # 2. PLAY STORE INTERNAL TESTING
 # Upload AAB -> Create Release -> Add Testers (Your Email)

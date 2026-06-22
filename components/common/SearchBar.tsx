@@ -1,7 +1,6 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import { View, StyleSheet, TextInput, Pressable } from 'react-native';
 import { useTheme } from '@/hooks/useTheme';
-import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { Search, X, SlidersHorizontal } from 'lucide-react-native';
 

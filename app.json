@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "DevDigest",
-    "slug": "devdigest",
+    "name": "DevJournal",
+    "slug": "devjournal",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "devdigest",
+    "scheme": "devjournal",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.techpulse.app",
+      "bundleIdentifier": "com.devjournal.app",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
@@ -27,7 +27,7 @@
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#020617"
       },
-      "package": "com.techpulse.app"
+      "package": "com.devjournal.app"
     },
     "web": {
       "bundler": "metro",

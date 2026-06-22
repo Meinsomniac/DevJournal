@@ -150,7 +150,7 @@ export async function fetchAndParseFeed(
     const response = await fetch(url, {
       method: 'GET',
       headers: {
-        'User-Agent': 'TechPulse/1.0 (https://github.com/techpulse-app)',
+        'User-Agent': 'DevJournal/1.0 (https://github.com/devjournal-app)',
         'Accept': 'application/xml, application/rss+xml, application/atom+xml, text/xml, */*',
       },
       signal: controller.signal,

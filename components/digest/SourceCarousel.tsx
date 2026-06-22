@@ -8,7 +8,7 @@ import { Globe } from 'lucide-react-native';
 
 const ITEM_WIDTH = 120;
 
-interface CarouselItem {
+interface CarouselItemData {
   key: 'all' | string;
   name: string;
   iconUri: string | null;
@@ -26,7 +26,7 @@ const CarouselItem = React.memo(function CarouselItem({
   isSelected,
   onPress,
 }: {
-  item: CarouselItem;
+  item: CarouselItemData;
   isSelected: boolean;
   onPress: () => void;
 }) {
@@ -73,7 +73,7 @@ const CarouselItem = React.memo(function CarouselItem({
   );
 });
 
-function buildCarouselItems(sources: FeedSource[]): CarouselItem[] {
+function buildCarouselItems(sources: FeedSource[]): CarouselItemData[] {
   return [
     { key: 'all', name: 'All', iconUri: null },
     ...sources.map((s) => ({
@@ -86,16 +86,15 @@ function buildCarouselItems(sources: FeedSource[]): CarouselItem[] {
 }
 
 export function SourceCarousel({ sources, selectedSource, onSourceChange }: SourceCarouselProps) {
-  const { colors } = useTheme();
   const { width: screenWidth } = useWindowDimensions();
-  const listRef = useRef<FlatList<CarouselItem>>(null);
+  const listRef = useRef<FlatList<CarouselItemData>>(null);
 
   const items = useMemo(() => buildCarouselItems(sources), [sources]);
 
   const sidePadding = (screenWidth - ITEM_WIDTH) / 2;
 
   const getItemLayout = useCallback(
-    (_data: ArrayLike<CarouselItem> | null | undefined, index: number) => ({
+    (_data: ArrayLike<CarouselItemData> | null | undefined, index: number) => ({
       length: ITEM_WIDTH,
       offset: ITEM_WIDTH * index,
       index,
@@ -139,7 +138,7 @@ export function SourceCarousel({ sources, selectedSource, onSourceChange }: Sour
   );
 
   const renderItem = useCallback(
-    ({ item, index }: { item: CarouselItem; index: number }) => (
+    ({ item, index }: { item: CarouselItemData; index: number }) => (
       <CarouselItem
         item={item}
         isSelected={item.key === selectedSource}
@@ -149,7 +148,7 @@ export function SourceCarousel({ sources, selectedSource, onSourceChange }: Sour
     [selectedSource, handlePress]
   );
 
-  const keyExtractor = useCallback((item: CarouselItem) => item.key, []);
+  const keyExtractor = useCallback((item: CarouselItemData) => item.key, []);
 
   if (sources.length === 0) return null;
 

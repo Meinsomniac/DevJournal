@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,8 @@ import {
   ActivityIndicator,
   AppState,
   AppStateStatus,
+  Animated,
+  Pressable,
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,24 +16,23 @@ import { useApp } from '@/context/AppContext';
 import { Spacing } from '@/constants/Spacing';
 import { Typography } from '@/constants/Typography';
 import { Article, FeedSource, FilterState, DEFAULT_FILTER } from '@/types';
-import { getDigestFeed, toggleBookmark, getUnreadCount, saveArticles, getFilteredArticles, getEnabledFeedSources } from '@/services/db';
+import { getDigestFeed, toggleBookmark, saveArticles, getFilteredArticles, getEnabledFeedSources, getNotifiedArticleIds, markArticlesNotified, getArticleCount, markRead, getSetting, setSetting } from '@/services/db';
 import { fetchAllFeeds } from '@/services/rssParser';
 import { deduplicateByLink } from '@/services/ranking';
 import { sendBreakingNotificationBatch } from '@/services/notifications';
 import { SearchBar } from '@/components/common';
 import { DigestCard, FilterModal } from '@/components/digest';
 import { ArticleSkeleton, EmptyState, Button } from '@/components/ui';
-import { Newspaper, RefreshCw } from 'lucide-react-native';
+import { Newspaper, RefreshCw, ArrowUp } from 'lucide-react-native';
 
 export default function DigestScreen() {
-  const { colors, compactMode, dataVersion, notifyBreaking } = useApp();
+  const { colors, compactMode, dataVersion, notifyBreaking, autoMarkRead } = useApp();
   const insets = useSafeAreaInsets();
 
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [fetching, setFetching] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTER);
@@ -39,9 +40,27 @@ export default function DigestScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [enabledSources, setEnabledSources] = useState<FeedSource[]>([]);
+  const [showScrollTop, setShowScrollTop] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appState = useRef(AppState.currentState);
-  const articleIdsBeforeFetch = useRef<Set<string> | null>(null);
+  const listRef = useRef<any>(null);
+  const scrollY = useMemo(() => new Animated.Value(0), []);
+  const fetchNewsRef = useRef<() => Promise<void>>(async () => {});
+  const markedReadRef = useRef<Set<string>>(new Set());
+
+  const viewabilityConfig = useMemo(() => ({
+    itemVisiblePercentThreshold: 50,
+  }), []);
+
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: { item: Article }[] }) => {
+    if (!autoMarkRead) return;
+    viewableItems.forEach(({ item }) => {
+      if (!markedReadRef.current.has(item.id)) {
+        markedReadRef.current.add(item.id);
+        markRead(item.id);
+      }
+    });
+  }, [autoMarkRead]);
 
   const PAGE_SIZE = 50;
 
@@ -65,10 +84,6 @@ export default function DigestScreen() {
         else setArticles(prev => [...prev, ...feed]);
         if (feed.length < PAGE_SIZE) setHasMore(false);
       }
-      if (loadOffset === 0) {
-        const count = await getUnreadCount();
-        setUnreadCount(count);
-      }
     } catch (error) {
       console.error('Failed to load articles:', error);
     } finally {
@@ -84,29 +99,17 @@ export default function DigestScreen() {
     loadData(searchQuery, articles.length);
   }, [loadingMore, hasMore, loadData, searchQuery, articles.length]);
 
-  useEffect(() => {
-    setHasMore(true);
-    loadData(searchQuery);
-    getEnabledFeedSources().then(setEnabledSources);
-  }, [dataVersion, loadData]);
-
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, []);
-
   const fetchNews = useCallback(async () => {
     if (fetching) return;
-    articleIdsBeforeFetch.current = new Set(articles.map(a => a.id));
     setHasMore(true);
     setFetching(true);
     try {
       const rawArticles = await fetchAllFeeds();
       const unique = deduplicateByLink(rawArticles);
 
+      const notifiedIds = await getNotifiedArticleIds();
       const breaking = notifyBreaking
-        ? unique.filter(a => a.importance_score === 5 && !articleIdsBeforeFetch.current?.has(a.id))
+        ? unique.filter(a => a.importance_score === 5 && !notifiedIds.has(a.id))
         : [];
 
       const saved = await saveArticles(unique);
@@ -116,6 +119,7 @@ export default function DigestScreen() {
         await sendBreakingNotificationBatch(
           breaking.map(a => ({ title: a.title, sourceName: a.source_name, id: a.id }))
         );
+        await markArticlesNotified(breaking.map(a => a.id));
       }
 
       await loadData(searchQuery);
@@ -124,13 +128,40 @@ export default function DigestScreen() {
     } finally {
       setFetching(false);
     }
-  }, [fetching, loadData, searchQuery, notifyBreaking, articles]);
+  }, [fetching, loadData, searchQuery, notifyBreaking]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await fetchNews();
     setRefreshing(false);
   }, [fetchNews]);
+
+  useEffect(() => {
+    fetchNewsRef.current = fetchNews;
+  }, [fetchNews]);
+
+  useEffect(() => {
+    const init = async () => {
+      await loadData(searchQuery);
+      const [count, initialFetchDone] = await Promise.all([
+        getArticleCount(),
+        getSetting<boolean>('initialFetchDone', false),
+      ]);
+      if (count === 0 && !initialFetchDone) {
+        await fetchNewsRef.current();
+        await setSetting('initialFetchDone', true);
+      }
+    };
+    const id = setTimeout(init, 0);
+    getEnabledFeedSources().then(setEnabledSources);
+    return () => clearTimeout(id);
+  }, [dataVersion, loadData, searchQuery]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   // Auto-fetch on app foreground and every 5 minutes
   useEffect(() => {
@@ -170,6 +201,7 @@ export default function DigestScreen() {
   }, [loadData, searchQuery]);
 
   const handleOpenFilter = useCallback(() => {
+    getEnabledFeedSources().then(setEnabledSources);
     setShowFilterModal(true);
   }, []);
 
@@ -181,6 +213,21 @@ export default function DigestScreen() {
   const handleClearFilter = useCallback(() => {
     setFilters(DEFAULT_FILTER);
     setShowFilterModal(false);
+  }, []);
+
+  const handleScroll = Animated.event(
+    [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+    {
+      useNativeDriver: false,
+      listener: (event: any) => {
+        const offsetY = event.nativeEvent.contentOffset.y;
+        setShowScrollTop(offsetY > 600);
+      },
+    }
+  );
+
+  const scrollToTop = useCallback(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, []);
 
   const renderArticle = useCallback(({ item }: { item: Article }) => (
@@ -207,14 +254,16 @@ export default function DigestScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bgPrimary, paddingTop: insets.top + Spacing.sm }]}>
-      <SearchBar
-        value={searchQuery}
-        onChangeText={handleSearchTextChange}
-        onSubmitEditing={handleSearchSubmit}
-        onFilterPress={handleOpenFilter}
-        filterActive={isFilterActive}
-        placeholder="Search articles..."
-      />
+      <View style={{ marginBottom: Spacing.md }}>
+        <SearchBar
+          value={searchQuery}
+          onChangeText={handleSearchTextChange}
+          onSubmitEditing={handleSearchSubmit}
+          onFilterPress={handleOpenFilter}
+          filterActive={isFilterActive}
+          placeholder="Search articles..."
+        />
+      </View>
 
       <FilterModal
         visible={showFilterModal}
@@ -246,42 +295,63 @@ export default function DigestScreen() {
           }
         />
       ) : (
-        <FlashList
-          data={articles}
-          keyExtractor={(item) => item.id}
-          renderItem={renderArticle}
-          contentContainerStyle={[
-            styles.listContent,
-            { paddingBottom: insets.bottom + Spacing.xxl },
-          ]}
-          showsVerticalScrollIndicator={false}
-          onEndReached={loadMore}
-          onEndReachedThreshold={0.5}
-          ListFooterComponent={
-            loadingMore ? (
-              <View style={styles.footerLoader}>
-                <ActivityIndicator size="small" color={colors.brandPrimary} />
-                <Text style={[Typography.bodySmall, { color: colors.textTertiary, marginLeft: Spacing.sm }]}>
-                  Loading more...
-                </Text>
-              </View>
-            ) : !hasMore && articles.length > 0 ? (
-              <View style={styles.footerLoader}>
-                <Text style={[Typography.bodySmall, { color: colors.textTertiary }]}>
-                  All articles loaded
-                </Text>
-              </View>
-            ) : null
-          }
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={colors.brandPrimary}
-              colors={[colors.brandPrimary]}
-            />
-          }
-        />
+        <View style={{ flex: 1 }}>
+          <FlashList
+            ref={listRef}
+            data={articles}
+            keyExtractor={(item) => item.id}
+            renderItem={renderArticle}
+            contentContainerStyle={[
+              styles.listContent,
+              { paddingBottom: insets.bottom + Spacing.xxl },
+            ]}
+            showsVerticalScrollIndicator={false}
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.5}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            viewabilityConfig={viewabilityConfig}
+            onViewableItemsChanged={onViewableItemsChanged}
+            ListFooterComponent={
+              loadingMore ? (
+                <View style={styles.footerLoader}>
+                  <ActivityIndicator size="small" color={colors.brandPrimary} />
+                  <Text style={[Typography.bodySmall, { color: colors.textTertiary, marginLeft: Spacing.sm }]}>
+                    Loading more...
+                  </Text>
+                </View>
+              ) : !hasMore && articles.length > 0 ? (
+                <View style={styles.footerLoader}>
+                  <Text style={[Typography.bodySmall, { color: colors.textTertiary }]}>
+                    All articles loaded
+                  </Text>
+                </View>
+              ) : null
+            }
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={colors.brandPrimary}
+                colors={[colors.brandPrimary]}
+              />
+            }
+          />
+          {showScrollTop && (
+            <Pressable
+              onPress={scrollToTop}
+              style={[
+                styles.fab,
+                {
+                  backgroundColor: colors.brandPrimary,
+                  bottom: insets.bottom + Spacing.xxl,
+                },
+              ]}
+            >
+              <ArrowUp size={24} color={colors.textInverse} />
+            </Pressable>
+          )}
+        </View>
       )}
     </View>
   );
@@ -308,5 +378,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: Spacing.lg,
+  },
+  fab: {
+    position: 'absolute',
+    right: Spacing.lg,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
   },
 });

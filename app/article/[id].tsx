@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, Text, Pressable, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 import { useTheme } from '@/hooks/useTheme';
 import { Typography } from '@/constants/Typography';
-import { Spacing } from '@/constants/Spacing';
+import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { Article } from '@/types';
 import { getArticleById, toggleBookmark, markRead } from '@/services/db';
 import { formatDateTime } from '@/utils/date';
-import { ImportanceStars, Button, SourceIcon } from '@/components/ui';
-import { Bookmark, ExternalLink, Share2 } from 'lucide-react-native';
+import { ImportanceStars, SourceIcon } from '@/components/ui';
+import { Bookmark, ExternalLink } from 'lucide-react-native';
 import { FEED_SOURCES } from '@/constants/Feeds';
 
 const ICON_BY_NAME = new Map(FEED_SOURCES.map((s) => [s.name, s.icon]));
@@ -17,6 +18,7 @@ const ICON_BY_NAME = new Map(FEED_SOURCES.map((s) => [s.name, s.icon]));
 export default function ArticleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
 
   const [article, setArticle] = useState<Article | null>(null);
@@ -56,25 +58,9 @@ export default function ArticleScreen() {
     await WebBrowser.openBrowserAsync(article.link);
   }, [article]);
 
-  const handleShare = useCallback(async () => {
-    if (!article) return;
-
-    try {
-      // Share API
-      if (navigator.share) {
-        await navigator.share({
-          title: article.title,
-          url: article.link,
-        });
-      }
-    } catch (error) {
-      console.log('Share cancelled or failed:', error);
-    }
-  }, [article]);
-
   if (loading) {
     return (
-      <View style={[styles.container, styles.center, { backgroundColor: colors.bgPrimary }]}>
+      <View style={[styles.container, styles.center, { backgroundColor: colors.bgPrimary, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <ActivityIndicator size="large" color={colors.brandPrimary} />
       </View>
     );
@@ -82,11 +68,19 @@ export default function ArticleScreen() {
 
   if (!article) {
     return (
-      <View style={[styles.container, styles.center, { backgroundColor: colors.bgPrimary }]}>
+      <View style={[styles.container, styles.center, { backgroundColor: colors.bgPrimary, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <Text style={[Typography.headlineMedium, { color: colors.textPrimary }]}>
           Article not found
         </Text>
-        <Button title="Go Back" onPress={() => router.back()} style={{ marginTop: Spacing.lg }} />
+        <Pressable
+          onPress={() => router.back()}
+          style={({ pressed }) => [
+            styles.goBackButton,
+            { backgroundColor: colors.brandPrimary, opacity: pressed ? 0.8 : 1 },
+          ]}
+        >
+          <Text style={[Typography.labelLarge, { color: colors.textInverse }]}>Go Back</Text>
+        </Pressable>
       </View>
     );
   }
@@ -100,21 +94,13 @@ export default function ArticleScreen() {
           headerTintColor: colors.textPrimary,
           headerStyle: { backgroundColor: colors.bgPrimary },
           headerRight: () => (
-            <View style={styles.headerActions}>
-              <Pressable onPress={handleBookmark} style={styles.headerIcon}>
-                <Bookmark
-                  size={22}
-                  color={article.is_bookmarked ? colors.warning : colors.textSecondary}
-                  fill={article.is_bookmarked ? colors.warning : 'transparent'}
-                />
-              </Pressable>
-              <Pressable onPress={handleOpenExternal} style={styles.headerIcon}>
-                <ExternalLink size={22} color={colors.textSecondary} />
-              </Pressable>
-              <Pressable onPress={handleShare} style={styles.headerIcon}>
-                <Share2 size={22} color={colors.textSecondary} />
-              </Pressable>
-            </View>
+            <Pressable onPress={handleBookmark} style={styles.headerIcon}>
+              <Bookmark
+                size={22}
+                color={article.is_bookmarked ? colors.warning : colors.textSecondary}
+                fill={article.is_bookmarked ? colors.warning : 'transparent'}
+              />
+            </Pressable>
           ),
         }}
       />
@@ -159,21 +145,25 @@ export default function ArticleScreen() {
             </Text>
           </View>
         )}
-
-        <View style={styles.divider} />
-
-        <View style={styles.actionSection}>
-          <Button
-            title="Read Full Article"
-            onPress={handleOpenExternal}
-            variant="primary"
-            style={styles.readButton}
-          />
-          <Text style={[Typography.labelSmall, { color: colors.textTertiary, marginTop: Spacing.sm, textAlign: 'center' }]}>
-            Opens in your browser
-          </Text>
-        </View>
       </ScrollView>
+
+      <View style={[styles.footer, { backgroundColor: colors.bgPrimary, paddingBottom: insets.bottom + Spacing.lg }]}>
+        <Pressable
+          onPress={handleOpenExternal}
+          style={({ pressed }) => [
+            styles.readButton,
+            { backgroundColor: colors.brandPrimary, opacity: pressed ? 0.8 : 1 },
+          ]}
+        >
+          <Text style={[Typography.labelLarge, { color: colors.textInverse }]}>
+            Read Full Article
+          </Text>
+          <ExternalLink size={18} color={colors.textInverse} style={{ marginLeft: Spacing.xs }} />
+        </Pressable>
+        <Text style={[Typography.labelSmall, { color: colors.textTertiary, marginTop: Spacing.sm, textAlign: 'center' }]}>
+          Opens in your browser
+        </Text>
+      </View>
     </>
   );
 }
@@ -187,17 +177,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: Spacing.xxl,
   },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
   headerIcon: {
-    padding: Spacing.xs,
+    padding: Spacing.sm,
   },
   content: {
     padding: Spacing.lg,
-    paddingBottom: Spacing.xxxl,
   },
   hero: {
     marginBottom: Spacing.lg,
@@ -225,16 +209,26 @@ const styles = StyleSheet.create({
   summarySection: {
     marginBottom: Spacing.xl,
   },
-  divider: {
-    height: 1,
-    backgroundColor: '#334155',
-  marginVertical: Spacing.xl,
-    opacity: 0.2,
-  },
-  actionSection: {
+  footer: {
     alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.1)',
   },
   readButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.md,
     minWidth: 200,
+  },
+  goBackButton: {
+    marginTop: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.md,
   },
 });

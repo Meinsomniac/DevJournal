@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '@/context/AppContext';
 import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
-import { clearCache, clearAllData, getStorageStats } from '@/services/db';
+import { clearCache, clearAllData, getStorageStats, StorageStats } from '@/services/db';
 import { formatDate } from '@/utils/date';
 import {
   Moon,
@@ -43,7 +43,7 @@ export default function SettingsScreen() {
   } = useApp();
   const insets = useSafeAreaInsets();
 
-  const [storageStats, setStorageStats] = useState({ count: 0, oldestDate: null as number | null });
+  const [storageStats, setStorageStats] = useState<StorageStats>({ count: 0, oldestDate: null, storageMb: 0 });
 
   useEffect(() => {
     const loadStats = async () => {
@@ -72,7 +72,7 @@ export default function SettingsScreen() {
   const handleClearAll = useCallback(() => {
     Alert.alert(
       'Clear All Data',
-      'This will delete all articles, bookmarks, and reading history. This cannot be undone.',
+      'This will delete all articles and bookmarks. Settings, feed sources, and preferences will be preserved. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -134,7 +134,7 @@ export default function SettingsScreen() {
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: colors.bgPrimary }]}
-      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing.xxl }]}
+      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing.xxl, paddingTop: insets.top + Spacing.lg }]}
     >
       {renderSection('Appearance',
         <>
@@ -192,7 +192,7 @@ export default function SettingsScreen() {
         <>
           {renderSetting(
             'Important News Alerts',
-            'Receive a notification when a new high-importance story is detected during auto-fetch or manual refresh. Multiple alerts are batched into one.',
+            'Notify you of high-importance stories from your feeds.',
             <Switch
               value={notifyBreaking}
               onValueChange={setNotifyBreaking}
@@ -212,6 +212,12 @@ export default function SettingsScreen() {
                 {storageStats.count} articles stored
               </Text>
             </View>
+            <View style={styles.statItem}>
+              <Database size={20} color={colors.brandPrimary} />
+              <Text style={[Typography.bodyMedium, { color: colors.textSecondary }]}>
+                {storageStats.storageMb} MB used
+              </Text>
+            </View>
             {storageStats.oldestDate && (
               <Text style={[Typography.bodySmall, { color: colors.textTertiary }]}>
                 Oldest: {formatDate(storageStats.oldestDate)} (auto-deletes after 7 days)
@@ -227,7 +233,7 @@ export default function SettingsScreen() {
           )}
           {renderSetting(
             'Clear All Data',
-            'Delete all stories and history',
+            'Delete all articles and bookmarks',
             <Pressable onPress={handleClearAll} style={styles.iconButton}>
               <Trash2 size={22} color={colors.error} />
             </Pressable>
@@ -265,7 +271,7 @@ export default function SettingsScreen() {
 
       <View style={styles.footer}>
         <Text style={[Typography.bodySmall, { color: colors.textTertiary, textAlign: 'center' }]}>
-          DevDigest - Daily tech news for developers
+          DevJournal - Daily tech news for developers
         </Text>
         <Text style={[Typography.labelSmall, { color: colors.textTertiary, marginTop: Spacing.xs }]}>
           Made with React Native & Expo

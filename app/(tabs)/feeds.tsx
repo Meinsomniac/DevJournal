@@ -124,10 +124,11 @@ export default function FeedsScreen() {
       }
 
       setCustomFeeds(customs);
+      bumpDataVersion();
     } catch (error) {
       console.error('Failed to load feeds:', error);
     }
-  }, []);
+  }, [bumpDataVersion]);
 
   React.useEffect(() => {
     const init = async () => { await loadFeeds(); };

@@ -22,7 +22,7 @@ import { DigestCard } from '@/components/digest';
 type TabType = 'bookmarks' | 'history';
 
 export default function SavedScreen() {
-  const { colors, compactMode } = useApp();
+  const { colors, compactMode, bumpDataVersion } = useApp();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
 
@@ -55,8 +55,9 @@ export default function SavedScreen() {
 
   const handleToggleBookmark = useCallback(async (id: string) => {
     await toggleBookmark(id);
+    bumpDataVersion();
     await loadData();
-  }, [loadData]);
+  }, [loadData, bumpDataVersion]);
 
   const displayData = activeTab === 'bookmarks' ? bookmarks : history;
 

@@ -11,6 +11,8 @@ import {
   ScrollView,
   Keyboard,
   Image,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '@/hooks/useTheme';
@@ -186,174 +188,179 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
       animationType="slide"
       onRequestClose={onClose}
     >
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={[styles.sheet, { backgroundColor: colors.bgPrimary }]} onPress={e => e.stopPropagation()}>
-          <View style={styles.handleContainer}>
-            <View style={[styles.handle, { backgroundColor: colors.borderMedium }]} />
-          </View>
-
-          <Text style={[Typography.headlineMedium, { color: colors.textPrimary, marginBottom: Spacing.lg }]}>
-            Add Custom Feed
-          </Text>
-
-          {/* URL Input */}
-          <View style={[styles.searchContainer, { backgroundColor: colors.bgTertiary, borderColor: colors.borderLight }]}>
-            <Text style={[Typography.bodyMedium, { color: colors.textTertiary }]}>https://</Text>
-            <TextInput
-              ref={inputRef}
-              style={[styles.searchInput, { color: colors.textPrimary }]}
-              placeholder="example.com"
-              placeholderTextColor={colors.textTertiary}
-              value={url}
-              onChangeText={handleUrlChange}
-              onSubmitEditing={handleSubmit}
-              autoCorrect={false}
-              autoCapitalize="none"
-              keyboardType="url"
-              returnKeyType="search"
-            />
-            {url.length > 0 && (
-              <TouchableOpacity onPress={() => { setUrl(''); setResults([]); setError(''); setHttpWarning(false); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <X size={18} color={colors.textTertiary} />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {/* Loading */}
-          {loading && (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color={colors.brandPrimary} />
-              <Text style={[Typography.bodySmall, { color: colors.textTertiary, marginLeft: Spacing.sm }]}>
-                Discovering feeds...
-              </Text>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : "padding"}
+      >
+        <Pressable style={styles.backdrop} onPress={onClose}>
+          <Pressable style={[styles.sheet, { backgroundColor: colors.bgPrimary }]} onPress={e => e.stopPropagation()}>
+            <View style={styles.handleContainer}>
+              <View style={[styles.handle, { backgroundColor: colors.borderMedium }]} />
             </View>
-          )}
 
-          {/* HTTP Warning */}
-          {httpWarning && (
-            <View style={[styles.errorContainer, { backgroundColor: colors.warning + '15' }]}>
-              <AlertTriangle size={14} color={colors.warning} />
-              <Text style={[Typography.bodySmall, { color: colors.warning, marginLeft: Spacing.xs }]}>
-                Only HTTPS is supported. Using secure connection.
-              </Text>
-            </View>
-          )}
+            <Text style={[Typography.headlineMedium, { color: colors.textPrimary, marginBottom: Spacing.lg }]}>
+              Add Custom Feed
+            </Text>
 
-          {/* Error */}
-          {!loading && error.length > 0 && (
-            <View style={[styles.errorContainer, { backgroundColor: colors.error + '10' }]}>
-              <Text style={[Typography.bodySmall, { color: colors.error }]}>
-                {error}
-              </Text>
-            </View>
-          )}
-
-          {/* Results */}
-          {results.length > 0 && (
-            <ScrollView style={styles.resultsContainer} showsVerticalScrollIndicator={false}>
-              {results.map((feed, index) => {
-                return (
-                  <View key={`${feed.rssUrl}-${index}`}>
-                    <View style={[styles.resultCard, { backgroundColor: colors.bgCard, borderColor: colors.borderLight }]}>
-                      <View style={[styles.iconCircle, { backgroundColor: colors.bgTertiary }]}>
-                        <Globe size={20} color={colors.textSecondary} />
-                      </View>
-                      <View style={styles.resultInfo}>
-                        <Text style={[Typography.titleSmall, { color: colors.textPrimary }]} numberOfLines={1}>
-                          {feed.name}
-                        </Text>
-                        <Text style={[Typography.labelSmall, { color: colors.textTertiary }]} numberOfLines={1}>
-                          {feed.rssUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}
-                        </Text>
-                      </View>
-                      <TouchableOpacity
-                        style={[styles.addButton, { backgroundColor: colors.brandPrimary }]}
-                        onPress={() => handleAddFeed(feed)}
-                      >
-                        <Plus size={16} color={colors.textInverse} />
-                      </TouchableOpacity>
-                    </View>
-
-
-                  </View>
-                );
-              })}
-            </ScrollView>
-          )}
-
-          {/* Confirm dialog */}
-          <Modal transparent visible={!!addingFeed} animationType="fade" onRequestClose={handleCancelAdd}>
-            <Pressable style={styles.confirmBackdrop} onPress={handleCancelAdd}>
-              <Pressable style={[styles.confirmDialog, { backgroundColor: colors.bgCard }]} onPress={e => e.stopPropagation()}>
-                {/* Icon picker */}
-                <TouchableOpacity onPress={handlePickIcon} style={styles.confirmIconPicker}>
-                  <View style={[styles.confirmIconWrapper, { backgroundColor: colors.bgTertiary }]}>
-                    {customIcon ? (
-                      <Image source={{ uri: customIcon }} style={styles.confirmIconImage} />
-                    ) : (
-                      <Globe size={32} color={colors.textSecondary} />
-                    )}
-                  </View>
-                  <Text style={[Typography.labelSmall, { color: colors.brandPrimary, marginTop: Spacing.xs }]}>
-                    Change Icon
-                  </Text>
+            {/* URL Input */}
+            <View style={[styles.searchContainer, { backgroundColor: colors.bgTertiary, borderColor: colors.borderLight }]}>
+              <Text style={[Typography.bodyMedium, { color: colors.textTertiary }]}>https://</Text>
+              <TextInput
+                ref={inputRef}
+                style={[styles.searchInput, { color: colors.textPrimary }]}
+                placeholder="example.com"
+                placeholderTextColor={colors.textTertiary}
+                value={url}
+                onChangeText={handleUrlChange}
+                onSubmitEditing={handleSubmit}
+                autoCorrect={false}
+                autoCapitalize="none"
+                keyboardType="url"
+                returnKeyType="search"
+              />
+              {url.length > 0 && (
+                <TouchableOpacity onPress={() => { setUrl(''); setResults([]); setError(''); setHttpWarning(false); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <X size={18} color={colors.textTertiary} />
                 </TouchableOpacity>
-
-                <Text style={[Typography.headlineSmall, { color: colors.textPrimary, textAlign: 'center', marginTop: Spacing.sm }]}>
-                  Add Feed
-                </Text>
-
-                {addingFeed && (
-                  <>
-                    {/* Name input */}
-                    <Text style={[Typography.labelMedium, { color: colors.textSecondary, alignSelf: 'flex-start', marginTop: Spacing.lg }]}>
-                      Name
-                    </Text>
-                    <TextInput
-                      style={[styles.confirmNameInput, { color: colors.textPrimary, backgroundColor: colors.bgTertiary, borderColor: colors.borderLight }]}
-                      value={customName}
-                      onChangeText={setCustomName}
-                      placeholder="Feed name"
-                      placeholderTextColor={colors.textTertiary}
-                      autoCorrect={false}
-                    />
-
-                    {/* URL display */}
-                    <Text style={[Typography.labelMedium, { color: colors.textSecondary, alignSelf: 'flex-start', marginTop: Spacing.md }]}>
-                      Feed URL
-                    </Text>
-                    <Text style={[Typography.bodySmall, { color: colors.textTertiary, alignSelf: 'flex-start', marginTop: Spacing.xs }]} numberOfLines={2}>
-                      {addingFeed.rssUrl.replace(/^https?:\/\//, '')}
-                    </Text>
-                  </>
-                )}
-
-                <View style={styles.confirmActions}>
-                  <TouchableOpacity onPress={handleCancelAdd} style={styles.cancelButton}>
-                    <Text style={[Typography.labelMedium, { color: colors.textSecondary }]}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.confirmAddButton, { backgroundColor: colors.brandPrimary }]}
-                    onPress={handleConfirmAdd}
-                  >
-                    <Text style={[Typography.labelMedium, { color: colors.textInverse }]}>Add Feed</Text>
-                  </TouchableOpacity>
-                </View>
-              </Pressable>
-            </Pressable>
-          </Modal>
-
-          {/* Empty state */}
-          {!loading && results.length === 0 && !error && url.length >= 4 && (
-            <View style={styles.emptyState}>
-              <Globe size={32} color={colors.textTertiary} />
-              <Text style={[Typography.bodyMedium, { color: colors.textSecondary, marginTop: Spacing.md }]}>
-                Enter a website URL to discover its RSS feeds
-              </Text>
+              )}
             </View>
-          )}
+
+            {/* Loading */}
+            {loading && (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color={colors.brandPrimary} />
+                <Text style={[Typography.bodySmall, { color: colors.textTertiary, marginLeft: Spacing.sm }]}>
+                  Discovering feeds...
+                </Text>
+              </View>
+            )}
+
+            {/* HTTP Warning */}
+            {httpWarning && (
+              <View style={[styles.errorContainer, { backgroundColor: colors.warning + '15' }]}>
+                <AlertTriangle size={14} color={colors.warning} />
+                <Text style={[Typography.bodySmall, { color: colors.warning, marginLeft: Spacing.xs }]}>
+                  Only HTTPS is supported. Using secure connection.
+                </Text>
+              </View>
+            )}
+
+            {/* Error */}
+            {!loading && error.length > 0 && (
+              <View style={[styles.errorContainer, { backgroundColor: colors.error + '10' }]}>
+                <Text style={[Typography.bodySmall, { color: colors.error }]}>
+                  {error}
+                </Text>
+              </View>
+            )}
+
+            {/* Results */}
+            {results.length > 0 && (
+                <ScrollView style={styles.resultsContainer} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                {results.map((feed, index) => {
+                  return (
+                    <View key={`${feed.rssUrl}-${index}`}>
+                      <View style={[styles.resultCard, { backgroundColor: colors.bgCard, borderColor: colors.borderLight }]}>
+                        <View style={[styles.iconCircle, { backgroundColor: colors.bgTertiary }]}>
+                          <Globe size={20} color={colors.textSecondary} />
+                        </View>
+                        <View style={styles.resultInfo}>
+                          <Text style={[Typography.titleSmall, { color: colors.textPrimary }]} numberOfLines={1}>
+                            {feed.name}
+                          </Text>
+                          <Text style={[Typography.labelSmall, { color: colors.textTertiary }]} numberOfLines={1}>
+                            {feed.rssUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          style={[styles.addButton, { backgroundColor: colors.brandPrimary }]}
+                          onPress={() => handleAddFeed(feed)}
+                        >
+                          <Plus size={16} color={colors.textInverse} />
+                        </TouchableOpacity>
+                      </View>
+
+
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
+
+            {/* Confirm dialog */}
+            <Modal transparent visible={!!addingFeed} animationType="fade" onRequestClose={handleCancelAdd}>
+              <Pressable style={styles.confirmBackdrop} onPress={handleCancelAdd}>
+                <Pressable style={[styles.confirmDialog, { backgroundColor: colors.bgCard }]} onPress={e => e.stopPropagation()}>
+                  {/* Icon picker */}
+                  <TouchableOpacity onPress={handlePickIcon} style={styles.confirmIconPicker}>
+                    <View style={[styles.confirmIconWrapper, { backgroundColor: colors.bgTertiary }]}>
+                      {customIcon ? (
+                        <Image source={{ uri: customIcon }} style={styles.confirmIconImage} />
+                      ) : (
+                        <Globe size={32} color={colors.textSecondary} />
+                      )}
+                    </View>
+                    <Text style={[Typography.labelSmall, { color: colors.brandPrimary, marginTop: Spacing.xs }]}>
+                      Change Icon
+                    </Text>
+                  </TouchableOpacity>
+
+                  <Text style={[Typography.headlineSmall, { color: colors.textPrimary, textAlign: 'center', marginTop: Spacing.sm }]}>
+                    Add Feed
+                  </Text>
+
+                  {addingFeed && (
+                    <>
+                      {/* Name input */}
+                      <Text style={[Typography.labelMedium, { color: colors.textSecondary, alignSelf: 'flex-start', marginTop: Spacing.lg }]}>
+                        Name
+                      </Text>
+                      <TextInput
+                        style={[styles.confirmNameInput, { color: colors.textPrimary, backgroundColor: colors.bgTertiary, borderColor: colors.borderLight }]}
+                        value={customName}
+                        onChangeText={setCustomName}
+                        placeholder="Feed name"
+                        placeholderTextColor={colors.textTertiary}
+                        autoCorrect={false}
+                      />
+
+                      {/* URL display */}
+                      <Text style={[Typography.labelMedium, { color: colors.textSecondary, alignSelf: 'flex-start', marginTop: Spacing.md }]}>
+                        Feed URL
+                      </Text>
+                      <Text style={[Typography.bodySmall, { color: colors.textTertiary, alignSelf: 'flex-start', marginTop: Spacing.xs }]} numberOfLines={2}>
+                        {addingFeed.rssUrl.replace(/^https?:\/\//, '')}
+                      </Text>
+                    </>
+                  )}
+
+                  <View style={styles.confirmActions}>
+                    <TouchableOpacity onPress={handleCancelAdd} style={styles.cancelButton}>
+                      <Text style={[Typography.labelMedium, { color: colors.textSecondary }]}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.confirmAddButton, { backgroundColor: colors.brandPrimary }]}
+                      onPress={handleConfirmAdd}
+                    >
+                      <Text style={[Typography.labelMedium, { color: colors.textInverse }]}>Add Feed</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Pressable>
+              </Pressable>
+            </Modal>
+
+            {/* Empty state */}
+            {!loading && results.length === 0 && !error && url.length >= 4 && (
+              <View style={styles.emptyState}>
+                <Globe size={32} color={colors.textTertiary} />
+                <Text style={[Typography.bodyMedium, { color: colors.textSecondary, marginTop: Spacing.md }]}>
+                  Enter a website URL to discover its RSS feeds
+                </Text>
+              </View>
+            )}
+          </Pressable>
         </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -369,7 +376,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: BorderRadius.xl,
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.xxl,
-    maxHeight: '60%',
   },
   handleContainer: {
     alignItems: 'center',

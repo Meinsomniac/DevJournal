@@ -42,8 +42,6 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
           styles.compactContainer,
           { backgroundColor: colors.bgCard },
           pressed && { backgroundColor: colors.bgCardHover },
-          !article.is_read && styles.unreadIndicator,
-          !article.is_read && { borderLeftColor: colors.brandPrimary },
         ]}
       >
         {article.image_uri && (
@@ -51,7 +49,7 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
         )}
         <View style={styles.compactContent}>
           <View style={styles.compactTop}>
-            <ImportanceStars score={article.importance_score} size={10} />
+            <ImportanceStars score={article.importance_score} size={10} color={colors.warning} />
             {article.importance_score === 5 && (
               <View style={[styles.importantBadgeSmall, { backgroundColor: colors.error + '20' }]}>
                 <Text style={[Typography.labelSmall, { color: colors.error, fontSize: 9, fontWeight: '700' }]}>
@@ -92,8 +90,6 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
         { backgroundColor: colors.bgCard },
         isDark ? Shadows.dark.card : Shadows.light.card,
         pressed && { backgroundColor: colors.bgCardHover },
-        !article.is_read && styles.unreadIndicator,
-        !article.is_read && { borderLeftColor: colors.brandPrimary },
       ]}
     >
       <View style={styles.header}>
@@ -189,11 +185,6 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     marginBottom: Spacing.sm,
     padding: Spacing.sm,
-    borderLeftWidth: 3,
-    borderLeftColor: 'transparent',
-  },
-  unreadIndicator: {
-    borderLeftWidth: 3,
   },
   header: {
     flexDirection: 'row',

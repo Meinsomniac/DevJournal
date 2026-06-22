@@ -2,6 +2,12 @@ import { Platform } from 'react-native';
 import * as SQLite from 'expo-sqlite';
 import { Article, ArticleInput, CustomFeed, FeedSource, FilterState } from '@/types';
 
+export interface StorageStats {
+  count: number;
+  oldestDate: number | null;
+  storageMb: number;
+}
+
 interface DatabaseInterface {
   saveArticles(articles: ArticleInput[]): Promise<number>;
   pruneOldArticles(): Promise<number>;
@@ -16,7 +22,7 @@ interface DatabaseInterface {
   deleteBookmark(id: string): Promise<void>;
   getUnreadCount(): Promise<number>;
   getArticleCount(): Promise<number>;
-  getStorageStats(): Promise<{ count: number; oldestDate: number | null }>;
+  getStorageStats(): Promise<StorageStats>;
   getSetting<T>(key: string, defaultValue: T): Promise<T>;
   setSetting<T>(key: string, value: T): Promise<void>;
   setFeedEnabled(id: string, enabled: boolean): Promise<void>;
@@ -32,6 +38,8 @@ interface DatabaseInterface {
   getEnabledFeedSources(): Promise<FeedSource[]>;
   getFilteredArticles(filters: FilterState, searchText?: string, limit?: number, offset?: number): Promise<Article[]>;
   retainOnlyFeeds(keepIds: Set<string>): Promise<void>;
+  getNotifiedArticleIds(): Promise<Set<string>>;
+  markArticlesNotified(ids: string[]): Promise<void>;
 }
 
 // ─── Native SQLite implementation ────────────────────────────────────────────
@@ -44,7 +52,7 @@ class NativeDatabase implements DatabaseInterface {
   }
 
   private async initDb(): Promise<SQLite.SQLiteDatabase> {
-    const db = await SQLite.openDatabaseAsync('techpulse.db');
+    const db = await SQLite.openDatabaseAsync('devjournal.db');
     await db.execAsync(`
       CREATE TABLE IF NOT EXISTS articles (
         id TEXT PRIMARY KEY NOT NULL,
@@ -82,6 +90,11 @@ class NativeDatabase implements DatabaseInterface {
         rss_url TEXT NOT NULL,
         icon TEXT,
         added_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS notified_articles (
+        id TEXT PRIMARY KEY NOT NULL,
+        notified_at TEXT DEFAULT (datetime('now'))
       );
     `);
 
@@ -209,6 +222,7 @@ class NativeDatabase implements DatabaseInterface {
     );
 
     const { FEED_SOURCES } = await import('@/constants/Feeds');
+    const builtinIds = new Set(FEED_SOURCES.map(s => s.id));
     const builtinNames = FEED_SOURCES
       .filter(s => enabledIds.has(s.id))
       .map(s => s.name);
@@ -217,7 +231,7 @@ class NativeDatabase implements DatabaseInterface {
       'SELECT id, name FROM custom_feeds'
     );
     const customNames = customs
-      .filter(c => enabledIds.has(c.id))
+      .filter(c => enabledIds.has(c.id) && !builtinIds.has(c.id))
       .map(c => c.name);
 
     return { names: [...builtinNames, ...customNames], hasPrefs: true };
@@ -263,9 +277,10 @@ class NativeDatabase implements DatabaseInterface {
       'SELECT id, name, url, icon FROM custom_feeds'
     );
 
+    const builtinIds = new Set(FEED_SOURCES.map(s => s.id));
     const builtinSources = FEED_SOURCES.filter(source => enabledIds.has(source.id));
     const customSources: FeedSource[] = customs
-      .filter(c => enabledIds.has(c.id))
+      .filter(c => enabledIds.has(c.id) && !builtinIds.has(c.id))
       .map(c => ({ id: c.id, name: c.name, url: c.url, icon: c.icon, enabled: true }));
 
     return [...builtinSources, ...customSources];
@@ -399,12 +414,15 @@ class NativeDatabase implements DatabaseInterface {
     return row?.count ?? 0;
   }
 
-  async getStorageStats(): Promise<{ count: number; oldestDate: number | null }> {
+  async getStorageStats(): Promise<StorageStats> {
     const db = await this.getDb();
     const row = await db.getFirstAsync<{ count: number; oldestDate: number | null }>(
       'SELECT COUNT(*) as count, MIN(pub_date) as oldestDate FROM articles'
     );
-    return { count: row?.count ?? 0, oldestDate: row?.oldestDate ?? null };
+    const count = row?.count ?? 0;
+    const estimatedBytes = count * 2000;
+    const storageMb = Math.round((estimatedBytes / (1024 * 1024)) * 10) / 10;
+    return { count, oldestDate: row?.oldestDate ?? null, storageMb };
   }
 
   async getSetting<T>(key: string, defaultValue: T): Promise<T> {
@@ -469,11 +487,7 @@ class NativeDatabase implements DatabaseInterface {
 
   async clearAllData(): Promise<void> {
     const db = await this.getDb();
-    await db.withTransactionAsync(async () => {
-      await db.runAsync('DELETE FROM articles');
-      await db.runAsync('DELETE FROM settings');
-      await db.runAsync('DELETE FROM feed_preferences');
-    });
+    await db.runAsync('DELETE FROM articles');
   }
 
   async clearCache(): Promise<void> {
@@ -490,15 +504,31 @@ class NativeDatabase implements DatabaseInterface {
       await db.runAsync(`DELETE FROM articles WHERE source_name NOT IN (SELECT name FROM custom_feeds WHERE id IN (${placeholders}))`, [...keepIds]);
     });
   }
+
+  async getNotifiedArticleIds(): Promise<Set<string>> {
+    const db = await this.getDb();
+    const rows = await db.getAllAsync<{ id: string }>('SELECT id FROM notified_articles');
+    return new Set(rows.map(r => r.id));
+  }
+
+  async markArticlesNotified(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const db = await this.getDb();
+    const stmt = await db.prepareAsync('INSERT OR IGNORE INTO notified_articles (id) VALUES (?)');
+    for (const id of ids) {
+      await stmt.executeAsync(id);
+    }
+    await stmt.finalizeAsync();
+  }
 }
 
 // ─── Web localStorage fallback ───────────────────────────────────────────────
 
 class WebDatabase implements DatabaseInterface {
-  private STORAGE_KEY = 'techpulse_articles';
-  private SETTINGS_KEY = 'techpulse_settings';
-  private FEEDS_KEY = 'techpulse_feeds';
-  private CUSTOM_FEEDS_KEY = 'techpulse_custom_feeds';
+  private STORAGE_KEY = 'devjournal_articles';
+  private SETTINGS_KEY = 'devjournal_settings';
+  private FEEDS_KEY = 'devjournal_feeds';
+  private CUSTOM_FEEDS_KEY = 'devjournal_custom_feeds';
 
   private getArticles(): Article[] {
     try {
@@ -688,10 +718,12 @@ class WebDatabase implements DatabaseInterface {
     return this.getArticles().length;
   }
 
-  async getStorageStats(): Promise<{ count: number; oldestDate: number | null }> {
+  async getStorageStats(): Promise<StorageStats> {
     const articles = this.getArticles();
     const dates = articles.map(a => a.pub_date).filter(Boolean);
-    return { count: articles.length, oldestDate: dates.length > 0 ? Math.min(...dates) : null };
+    const count = articles.length;
+    const storageMb = Math.round((new Blob([localStorage.getItem(this.STORAGE_KEY) || '']).size / (1024 * 1024)) * 10) / 10;
+    return { count, oldestDate: dates.length > 0 ? Math.min(...dates) : null, storageMb };
   }
 
   async getSetting<T>(key: string, defaultValue: T): Promise<T> {
@@ -748,8 +780,6 @@ class WebDatabase implements DatabaseInterface {
 
   async clearAllData(): Promise<void> {
     localStorage.removeItem(this.STORAGE_KEY);
-    localStorage.removeItem(this.SETTINGS_KEY);
-    localStorage.removeItem(this.CUSTOM_FEEDS_KEY);
   }
 
   async clearCache(): Promise<void> {
@@ -773,6 +803,22 @@ class WebDatabase implements DatabaseInterface {
     const keepNames = new Set(customFeeds.map(f => f.name));
     const articles = this.getArticles().filter(a => keepNames.has(a.source_name));
     this.saveArticlesToStorage(articles);
+  }
+
+  async getNotifiedArticleIds(): Promise<Set<string>> {
+    try {
+      const data = localStorage.getItem('devjournal_notified');
+      return new Set(data ? JSON.parse(data) : []);
+    } catch {
+      return new Set();
+    }
+  }
+
+  async markArticlesNotified(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const existing = await this.getNotifiedArticleIds();
+    for (const id of ids) existing.add(id);
+    localStorage.setItem('devjournal_notified', JSON.stringify([...existing]));
   }
 }
 
@@ -861,7 +907,7 @@ export function getArticleCount(): Promise<number> {
   return getDb().getArticleCount();
 }
 
-export function getStorageStats(): Promise<{ count: number; oldestDate: number | null }> {
+export function getStorageStats(): Promise<StorageStats> {
   return getDb().getStorageStats();
 }
 
@@ -903,6 +949,14 @@ export function clearAllData(): Promise<void> {
 
 export function clearCache(): Promise<void> {
   return getDb().clearCache();
+}
+
+export function getNotifiedArticleIds(): Promise<Set<string>> {
+  return getDb().getNotifiedArticleIds();
+}
+
+export function markArticlesNotified(ids: string[]): Promise<void> {
+  return getDb().markArticlesNotified(ids);
 }
 
 export async function seedCustomFeedsIfNeeded(): Promise<void> {
