@@ -38,7 +38,7 @@ const BUILTIN_FEEDS: CustomFeed[] = [
   { id: 'wired', name: 'Wired', url: 'https://www.wired.com/feed/rss', rss_url: 'https://www.wired.com/feed/rss', icon: fav('wired.com'), added_at: 0 },
   { id: 'venturebeat', name: 'VentureBeat', url: 'https://venturebeat.com/feed/', rss_url: 'https://venturebeat.com/feed/', icon: fav('venturebeat.com'), added_at: 0 },
   { id: 'techcrunch-dev', name: 'TechCrunch', url: 'https://techcrunch.com/feed/', rss_url: 'https://techcrunch.com/feed/', icon: fav('techcrunch.com'), added_at: 0 },
-  { id: 'hackernews', name: 'Hacker News', url: 'https://hnrss.org/frontpage', rss_url: 'https://hnrss.org/frontpage', icon: fav('news.ycombinator.com'), added_at: 0 },
+  { id: 'xda', name: 'XDA', url: 'https://www.xda-developers.com/feed/', rss_url: 'https://www.xda-developers.com/feed/', icon: fav('xda-developers.com'), added_at: 0 },
   { id: 'devto', name: 'DEV Community', url: 'https://dev.to/feed', rss_url: 'https://dev.to/feed', icon: fav('dev.to'), added_at: 0 },
   { id: 'theregister', name: 'The Register', url: 'https://www.theregister.com/headlines.atom', rss_url: 'https://www.theregister.com/headlines.atom', icon: fav('theregister.com'), added_at: 0 },
 ];
@@ -116,8 +116,13 @@ export default function FeedsScreen() {
       const disabled = await getDisabledFeeds();
       const customs = await getCustomFeeds();
 
-      setEnabledFeedsState(new Set(enabled));
+      const validIds = new Set([...BUILTIN_IDS, ...customs.map(f => f.id)]);
+      const staleIds = enabled.filter(id => !validIds.has(id));
+      for (const id of staleIds) {
+        await setFeedEnabled(id, false);
+      }
 
+      setEnabledFeedsState(new Set(enabled.filter(id => validIds.has(id))));
       setCustomFeeds(customs);
       bumpDataVersion();
     } catch (error) {

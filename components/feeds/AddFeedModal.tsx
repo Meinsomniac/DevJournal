@@ -24,6 +24,7 @@ import {
   validateRssUrl,
   DiscoveredFeed,
 } from '@/services/feedDiscovery';
+import { moderateFeed } from '@/services/contentModeration';
 import { X, Plus, Globe, AlertTriangle } from 'lucide-react-native';
 
 interface AddFeedModalProps {
@@ -43,9 +44,15 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
   const [addingFeed, setAddingFeed] = useState<DiscoveredFeed | null>(null);
   const [customName, setCustomName] = useState('');
   const [customIcon, setCustomIcon] = useState('');
+  const [checkingFeed, setCheckingFeed] = useState(false);
+  const [feedValid, setFeedValid] = useState<boolean | null>(null);
+  const [moderationPassed, setModerationPassed] = useState(true);
   const inputRef = useRef<TextInput>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
   const prevVisible = useRef(false);
+  const feedReadyRef = useRef(false);
+
+  console.log({results})
 
   // Reset state when modal opens
   useEffect(() => {
@@ -58,6 +65,10 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
       setAddingFeed(null);
       setCustomName('');
       setCustomIcon('');
+      setCheckingFeed(false);
+      setFeedValid(null);
+      setModerationPassed(true);
+      feedReadyRef.current = false;
     }
     prevVisible.current = visible;
   }, [visible]);
@@ -121,21 +132,47 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
     setAddingFeed(feed);
     setCustomName(feed.name);
     setCustomIcon(feed.favicon);
+    setError('');
+    feedReadyRef.current = false;
+
+    setCheckingFeed(true);
+    setFeedValid(null);
+    setModerationPassed(true);
+
+    Promise.all([
+      validateRssUrl(feed.rssUrl).then(valid => {
+        setFeedValid(valid);
+        return valid;
+      }),
+      moderateFeed(feed.rssUrl, feed.name).then(result => {
+        setModerationPassed(result.allowed);
+        if (!result.allowed) {
+          const labels = result.flaggedCategories.map(fc => fc.category.label).join(', ');
+          setError(`This feed contains content prohibited: ${labels}. Please choose a different source.`);
+        }
+        return result;
+      }),
+    ]).then(([valid, moderation]) => {
+      setCheckingFeed(false);
+      if (valid && moderation.allowed) {
+        feedReadyRef.current = true;
+      }
+    }).catch(() => {
+      setCheckingFeed(false);
+      setError('Failed to verify feed. Please try again.');
+    });
   }, []);
 
   const handleConfirmAdd = useCallback(async () => {
-    if (!addingFeed) return;
+    if (!addingFeed || checkingFeed) return;
+    if (!feedValid) {
+      setError('Invalid RSS feed. Please try a different URL.');
+      return;
+    }
+    if (!moderationPassed) return;
 
     Keyboard.dismiss();
     setLoading(true);
-
-    const isValid = await validateRssUrl(addingFeed.rssUrl);
-    if (!isValid) {
-      setLoading(false);
-      setError('Invalid RSS feed. Please try a different URL.');
-      setAddingFeed(null);
-      return;
-    }
 
     const name = customName.trim() || addingFeed.name;
     const id = name
@@ -160,7 +197,7 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
     setResults([]);
     onFeedAdded();
     onClose();
-  }, [addingFeed, customName, customIcon, onFeedAdded, onClose]);
+  }, [addingFeed, checkingFeed, feedValid, moderationPassed, customName, customIcon, onFeedAdded, onClose]);
 
   const handlePickIcon = useCallback(async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -334,15 +371,36 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
                     </>
                   )}
 
+                  {checkingFeed && (
+                    <View style={[styles.loadingContainer, { marginTop: Spacing.md }]}>
+                      <ActivityIndicator size="small" color={colors.brandPrimary} />
+                      <Text style={[Typography.bodySmall, { color: colors.textTertiary, marginLeft: Spacing.sm }]}>
+                        Verifying feed...
+                      </Text>
+                    </View>
+                  )}
+
+                  {!checkingFeed && error.length > 0 && (
+                    <View style={[styles.errorContainer, { backgroundColor: colors.error + '10', marginTop: Spacing.md }]}>
+                      <Text style={[Typography.bodySmall, { color: colors.error }]}>
+                        {error}
+                      </Text>
+                    </View>
+                  )}
+
                   <View style={styles.confirmActions}>
                     <TouchableOpacity onPress={handleCancelAdd} style={styles.cancelButton}>
                       <Text style={[Typography.labelMedium, { color: colors.textSecondary }]}>Cancel</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.confirmAddButton, { backgroundColor: colors.brandPrimary }]}
+                      style={[
+                        styles.confirmAddButton,
+                        { backgroundColor: checkingFeed ? colors.borderMedium : colors.brandPrimary },
+                      ]}
                       onPress={handleConfirmAdd}
+                      disabled={checkingFeed}
                     >
-                      <Text style={[Typography.labelMedium, { color: colors.textInverse }]}>Add Feed</Text>
+                      <Text style={[Typography.labelMedium, { color: checkingFeed ? colors.textTertiary : colors.textInverse }]}>Add Feed</Text>
                     </TouchableOpacity>
                   </View>
                 </Pressable>

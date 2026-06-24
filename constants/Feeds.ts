@@ -11,7 +11,7 @@ export const FEED_SOURCES: FeedSource[] = [
   { id: 'wired', name: 'Wired', url: 'https://www.wired.com/feed/rss', icon: fav('wired.com'), enabled: true },
   { id: 'venturebeat', name: 'VentureBeat', url: 'https://venturebeat.com/feed/', icon: fav('venturebeat.com'), enabled: true },
   { id: 'techcrunch-dev', name: 'TechCrunch', url: 'https://techcrunch.com/feed/', icon: fav('techcrunch.com'), enabled: true },
-  { id: 'hackernews', name: 'Hacker News', url: 'https://hnrss.org/frontpage', icon: fav('news.ycombinator.com'), enabled: true },
+  { id: 'xda', name: 'XDA', url: 'https://www.xda-developers.com/feed/', icon: fav('xda-developers.com'), enabled: true },
   { id: 'devto', name: 'DEV Community', url: 'https://dev.to/feed', icon: fav('dev.to'), enabled: true },
   { id: 'theregister', name: 'The Register', url: 'https://www.theregister.com/headlines.atom', icon: fav('theregister.com'), enabled: true, keywords: GENERAL_KEYWORDS },
 ];

@@ -164,7 +164,14 @@ class NativeDatabase implements DatabaseInterface {
   }
 
   private async getDb(): Promise<SQLite.SQLiteDatabase> {
-    return this.dbPromise;
+    const db = await this.dbPromise;
+    try {
+      await db.getFirstAsync('SELECT 1');
+    } catch {
+      this.dbPromise = this.initDb();
+      return this.dbPromise;
+    }
+    return db;
   }
 
   async saveArticles(articles: ArticleInput[]): Promise<number> {
@@ -488,6 +495,7 @@ class NativeDatabase implements DatabaseInterface {
 
   async removeCustomFeed(id: string): Promise<void> {
     const db = await this.getDb();
+    await db.runAsync('DELETE FROM feed_preferences WHERE feed_id = ?', [id]);
     await db.runAsync('DELETE FROM custom_feeds WHERE id = ?', [id]);
   }
 
@@ -623,8 +631,15 @@ class WebDatabase implements DatabaseInterface {
     const feeds = JSON.parse(feedsJson) as Record<string, boolean>;
     const enabledIds = new Set(Object.entries(feeds).filter(([, v]) => v).map(([k]) => k));
     const { FEED_SOURCES } = await import('@/constants/Feeds');
-    const names = FEED_SOURCES.filter(s => enabledIds.has(s.id)).map(s => s.name);
-    return { names, hasPrefs: true };
+    const builtinIds = new Set(FEED_SOURCES.map(s => s.id));
+    const builtinNames = FEED_SOURCES
+      .filter(s => enabledIds.has(s.id))
+      .map(s => s.name);
+    const customs = this.getCustomFeedsSync();
+    const customNames = customs
+      .filter(c => enabledIds.has(c.id) && !builtinIds.has(c.id))
+      .map(c => c.name);
+    return { names: [...builtinNames, ...customNames], hasPrefs: true };
   }
 
   async getArticlesBySource(sourceName: string, limit = 50): Promise<Article[]> {
@@ -648,11 +663,19 @@ class WebDatabase implements DatabaseInterface {
     const { FEED_SOURCES } = await import('@/constants/Feeds');
     const feedsJson = localStorage.getItem(this.FEEDS_KEY);
     
-    // No preferences set yet — treat all feeds as available
     if (!feedsJson || feedsJson === '{}') return FEED_SOURCES;
 
     const feeds = JSON.parse(feedsJson) as Record<string, boolean>;
-    return FEED_SOURCES.filter(source => feeds[source.id] === true);
+    const enabledIds = new Set(Object.entries(feeds).filter(([, v]) => v).map(([k]) => k));
+    const builtinIds = new Set(FEED_SOURCES.map(s => s.id));
+    const builtinSources = FEED_SOURCES.filter(source => enabledIds.has(source.id));
+
+    const customs = this.getCustomFeedsSync();
+    const customSources: FeedSource[] = customs
+      .filter(c => enabledIds.has(c.id) && !builtinIds.has(c.id))
+      .map(c => ({ id: c.id, name: c.name, url: c.url, icon: c.icon, enabled: true }));
+
+    return [...builtinSources, ...customSources];
   }
 
   async getFilteredArticles(filters: FilterState, searchText?: string, limit = 50, offset = 0): Promise<Article[]> {
@@ -805,6 +828,9 @@ class WebDatabase implements DatabaseInterface {
   async removeCustomFeed(id: string): Promise<void> {
     const feeds = this.getCustomFeedsSync().filter(f => f.id !== id);
     localStorage.setItem(this.CUSTOM_FEEDS_KEY, JSON.stringify(feeds));
+    const prefs = JSON.parse(localStorage.getItem(this.FEEDS_KEY) || '{}');
+    delete prefs[id];
+    localStorage.setItem(this.FEEDS_KEY, JSON.stringify(prefs));
   }
 
   async getCustomFeeds(): Promise<CustomFeed[]> {

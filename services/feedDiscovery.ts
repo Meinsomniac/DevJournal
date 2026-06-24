@@ -278,6 +278,89 @@ async function speculateFeeds(url: string): Promise<DiscoveredFeed[]> {
   return results;
 }
 
+// ─── Feed Ranking & Dedup ────────────────────────────────────────────────────
+
+type FeedSource = 'link-tag' | 'anchor' | 'speculation';
+
+interface ScoredFeed extends DiscoveredFeed {
+  source: FeedSource;
+  score: number;
+}
+
+function getFeedFormat(url: string): 'rss' | 'atom' | 'json' | 'other' {
+  const u = url.toLowerCase();
+  if (u.includes('atom')) return 'atom';
+  if (u.includes('rss')) return 'rss';
+  if (u.includes('json')) return 'json';
+  // Common CMS feed paths like /feed/, /feed, /rss/, /rss
+  if (/\/(feed|rss)(\/|$)/.test(u)) return 'rss';
+  if (/\.(xml)$/i.test(u)) return 'rss';
+  return 'other';
+}
+
+function getFeedIdentity(url: string): string {
+  const u = url.toLowerCase().replace(/\/+$/, '');
+  const format = getFeedFormat(u);
+  // Query-param WordPress feeds
+  if (/\?feed=(rss2?|atom)/.test(u)) return u.includes('atom') ? 'atom-wp' : 'rss-wp';
+  // Key by directory path so /feed/ and /comments/feed/ don't collide
+  let path: string;
+  try { path = new URL(u).pathname.replace(/\/+$/, '') || '/'; } catch { return u; }
+  // Normalize WordPress /feed/rss → /feed (same content)
+  const key = path.replace(/\/feed\/rss(\/.*)?$/, '/feed').replace(/\/feed\/rss$/, '/feed');
+  return format + ':' + key;
+}
+
+function scoreFeed(source: FeedSource, format: string, url: string): number {
+  let score = 0;
+  switch (source) {
+    case 'link-tag': score += 100; break;
+    case 'anchor':   score += 50;  break;
+    case 'speculation': score += 10; break;
+  }
+  if (format === 'rss') score += 5;
+  // Penalise query-param feeds
+  try { if (new URL(url).search) score -= 10; } catch { /* skip */ }
+  return score;
+}
+
+function deduplicateAndRankFeeds(
+  feeds: DiscoveredFeed[],
+  source: FeedSource,
+  existingUrls: Set<string>
+): ScoredFeed[] {
+  const seenIdentity = new Set<string>();
+  const result: ScoredFeed[] = [];
+  for (const f of feeds) {
+    // Skip if discovered URL matches the source page URL — almost always a false positive
+    if (f.rssUrl === f.url) continue;
+    if (existingUrls.has(f.rssUrl)) continue;
+    existingUrls.add(f.rssUrl);
+    const identity = getFeedIdentity(f.rssUrl);
+    if (seenIdentity.has(identity)) continue;
+    seenIdentity.add(identity);
+    result.push({ ...f, source, score: scoreFeed(source, getFeedFormat(f.rssUrl), f.rssUrl) });
+  }
+  return result;
+}
+
+function selectBestFeeds(scored: ScoredFeed[]): DiscoveredFeed[] {
+  if (scored.length <= 1) return scored;
+  scored.sort((a, b) => b.score - a.score);
+  const seenFormats = new Set<string>();
+  const picked: DiscoveredFeed[] = [];
+  for (const f of scored) {
+    const fmt = getFeedFormat(f.rssUrl);
+    if (picked.length >= 2) break;
+    if (!seenFormats.has(fmt)) {
+      seenFormats.add(fmt);
+      const { source, score, ...clean } = f;
+      picked.push(clean);
+    }
+  }
+  return picked.length > 0 ? picked : [scored[0]];
+}
+
 // ─── Main Discovery ──────────────────────────────────────────────────────────
 
 export async function discoverRssFromUrl(url: string): Promise<DiscoveredFeed[]> {
@@ -328,39 +411,26 @@ export async function discoverRssFromUrl(url: string): Promise<DiscoveredFeed[]>
     if (!contentType.includes('html') && !contentType.includes('xml')) return [];
 
     const baseUrl = response.url || normalizedUrl;
-    const feeds: DiscoveredFeed[] = [];
+    const allScored: ScoredFeed[] = [];
     const seenUrls = new Set<string>();
 
-    // Step 4: Parse <link> tags in HTML
+    // Step 4: Parse <link> tags in HTML (highest authority)
     const linkFeeds = extractLinkTags(text, baseUrl);
-    for (const f of linkFeeds) {
-      if (!seenUrls.has(f.rssUrl)) {
-        seenUrls.add(f.rssUrl);
-        feeds.push(f);
-      }
-    }
+    allScored.push(...deduplicateAndRankFeeds(linkFeeds, 'link-tag', seenUrls));
 
     // Step 5: Scan <a> tags for feed links
-    const anchorFeeds = extractAnchorFeedLinks(text, baseUrl);
-    for (const f of anchorFeeds) {
-      if (!seenUrls.has(f.rssUrl)) {
-        seenUrls.add(f.rssUrl);
-        feeds.push(f);
-      }
+    if (allScored.length === 0) {
+      const anchorFeeds = extractAnchorFeedLinks(text, baseUrl);
+      allScored.push(...deduplicateAndRankFeeds(anchorFeeds, 'anchor', seenUrls));
     }
 
     // Step 6: Fallback to path speculation
-    if (feeds.length === 0) {
+    if (allScored.length === 0) {
       const speculated = await speculateFeeds(normalizedUrl);
-      for (const f of speculated) {
-        if (!seenUrls.has(f.rssUrl)) {
-          seenUrls.add(f.rssUrl);
-          feeds.push(f);
-        }
-      }
+      allScored.push(...deduplicateAndRankFeeds(speculated, 'speculation', seenUrls));
     }
 
-    return feeds;
+    return selectBestFeeds(allScored);
   } catch {
     return [];
   }
