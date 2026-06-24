@@ -40,6 +40,9 @@ interface DatabaseInterface {
   retainOnlyFeeds(keepIds: Set<string>): Promise<void>;
   getNotifiedArticleIds(): Promise<Set<string>>;
   markArticlesNotified(ids: string[]): Promise<void>;
+  getFeedCache(url: string): Promise<{ content: string; lastModified: string | null; etag: string | null; fetchedAt: number } | null>;
+  saveFeedCache(url: string, content: string, lastModified: string | null, etag: string | null): Promise<void>;
+  clearFeedCache(): Promise<void>;
 }
 
 // ─── Native SQLite implementation ────────────────────────────────────────────
@@ -95,6 +98,14 @@ class NativeDatabase implements DatabaseInterface {
       CREATE TABLE IF NOT EXISTS notified_articles (
         id TEXT PRIMARY KEY NOT NULL,
         notified_at TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS feed_cache (
+        url TEXT PRIMARY KEY NOT NULL,
+        content TEXT NOT NULL,
+        last_modified TEXT,
+        etag TEXT,
+        fetched_at INTEGER NOT NULL
       );
     `);
 
@@ -520,6 +531,34 @@ class NativeDatabase implements DatabaseInterface {
     }
     await stmt.finalizeAsync();
   }
+
+  async getFeedCache(url: string): Promise<{ content: string; lastModified: string | null; etag: string | null; fetchedAt: number } | null> {
+    const db = await this.getDb();
+    const row = await db.getFirstAsync<{ content: string; last_modified: string | null; etag: string | null; fetched_at: number }>(
+      'SELECT content, last_modified, etag, fetched_at FROM feed_cache WHERE url = ?',
+      [url]
+    );
+    if (!row) return null;
+    return {
+      content: row.content,
+      lastModified: row.last_modified ?? null,
+      etag: row.etag ?? null,
+      fetchedAt: row.fetched_at,
+    };
+  }
+
+  async saveFeedCache(url: string, content: string, lastModified: string | null, etag: string | null): Promise<void> {
+    const db = await this.getDb();
+    await db.runAsync(
+      'INSERT OR REPLACE INTO feed_cache (url, content, last_modified, etag, fetched_at) VALUES (?, ?, ?, ?, ?)',
+      [url, content, lastModified, etag, Date.now()]
+    );
+  }
+
+  async clearFeedCache(): Promise<void> {
+    const db = await this.getDb();
+    await db.runAsync('DELETE FROM feed_cache');
+  }
 }
 
 // ─── Web localStorage fallback ───────────────────────────────────────────────
@@ -820,6 +859,34 @@ class WebDatabase implements DatabaseInterface {
     for (const id of ids) existing.add(id);
     localStorage.setItem('devjournal_notified', JSON.stringify([...existing]));
   }
+
+  async getFeedCache(url: string): Promise<{ content: string; lastModified: string | null; etag: string | null; fetchedAt: number } | null> {
+    try {
+      const data = localStorage.getItem('devjournal_feed_cache');
+      const cache = data ? JSON.parse(data) : {};
+      const entry = cache[url];
+      if (!entry) return null;
+      return {
+        content: entry.content,
+        lastModified: entry.lastModified ?? null,
+        etag: entry.etag ?? null,
+        fetchedAt: entry.fetchedAt,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async saveFeedCache(url: string, content: string, lastModified: string | null, etag: string | null): Promise<void> {
+    const data = localStorage.getItem('devjournal_feed_cache');
+    const cache = data ? JSON.parse(data) : {};
+    cache[url] = { content, lastModified, etag, fetchedAt: Date.now() };
+    localStorage.setItem('devjournal_feed_cache', JSON.stringify(cache));
+  }
+
+  async clearFeedCache(): Promise<void> {
+    localStorage.removeItem('devjournal_feed_cache');
+  }
 }
 
 // ─── Singleton ───────────────────────────────────────────────────────────────
@@ -959,6 +1026,18 @@ export function markArticlesNotified(ids: string[]): Promise<void> {
   return getDb().markArticlesNotified(ids);
 }
 
+export function getFeedCache(url: string): Promise<{ content: string; lastModified: string | null; etag: string | null; fetchedAt: number } | null> {
+  return getDb().getFeedCache(url);
+}
+
+export function saveFeedCache(url: string, content: string, lastModified: string | null, etag: string | null): Promise<void> {
+  return getDb().saveFeedCache(url, content, lastModified, etag);
+}
+
+export function clearFeedCache(): Promise<void> {
+  return getDb().clearFeedCache();
+}
+
 export async function seedCustomFeedsIfNeeded(): Promise<void> {
   const { FEED_SOURCES } = await import('@/constants/Feeds');
   const keepIds = new Set(FEED_SOURCES.map(s => s.id));
@@ -976,6 +1055,7 @@ export async function seedCustomFeedsIfNeeded(): Promise<void> {
         icon: source.icon,
         added_at: Date.now(),
       });
+      await setFeedEnabled(source.id, true);
     }
   }
 }

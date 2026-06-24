@@ -3,6 +3,7 @@ import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import { AppProvider, useApp } from '@/context/AppContext';
+import { seedCustomFeedsIfNeeded } from '@/services/db';
 import { requestNotificationPermissions, setupNotificationResponseHandler } from '@/services/notifications';
 
 function ThemedLayout() {
@@ -11,6 +12,7 @@ function ThemedLayout() {
   const router = useRouter();
 
   useEffect(() => {
+    seedCustomFeedsIfNeeded();
     requestNotificationPermissions();
     const subscription = setupNotificationResponseHandler(
       (articleId) => router.push(`/article/${articleId}`)

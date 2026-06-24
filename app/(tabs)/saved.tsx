@@ -118,7 +118,7 @@ export default function SavedScreen() {
     return (
       <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
         <Header title="Saved" />
-        <View style={styles.loadingContainer}>
+        <View style={[styles.loadingContainer, { paddingBottom: insets.bottom + Spacing.xxl }]}>
           <Text style={[Typography.bodyMedium, { color: colors.textSecondary }]}>
             Loading...
           </Text>
@@ -182,11 +182,13 @@ export default function SavedScreen() {
       </View>
 
       {activeTab === 'bookmarks' && displayData.length === 0 && (
-        <EmptyState
-          icon={Bookmark}
-          title="No bookmarks yet"
-          description="Save articles to read later by tapping the bookmark icon."
-        />
+        <View style={[styles.emptyWrapper, { paddingBottom: insets.bottom + Spacing.xxl }]}>
+          <EmptyState
+            icon={Bookmark}
+            title="No bookmarks yet"
+            description="Save articles to read later by tapping the bookmark icon."
+          />
+        </View>
       )}
 
       {activeTab === 'bookmarks' && displayData.length > 0 && (
@@ -227,6 +229,9 @@ export default function SavedScreen() {
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  emptyWrapper: {
     flex: 1,
   },
   loadingContainer: {

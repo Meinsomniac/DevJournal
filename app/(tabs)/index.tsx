@@ -99,12 +99,12 @@ export default function DigestScreen() {
     loadData(searchQuery, articles.length);
   }, [loadingMore, hasMore, loadData, searchQuery, articles.length]);
 
-  const fetchNews = useCallback(async () => {
+  const fetchNews = useCallback(async (skipCache: boolean = false) => {
     if (fetching) return;
     setHasMore(true);
     setFetching(true);
     try {
-      const rawArticles = await fetchAllFeeds();
+      const rawArticles = await fetchAllFeeds(skipCache);
       const unique = deduplicateByLink(rawArticles);
 
       const notifiedIds = await getNotifiedArticleIds();
@@ -132,7 +132,7 @@ export default function DigestScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchNews();
+    await fetchNews(false); // Don't bypass cache on pull to refresh
     setRefreshing(false);
   }, [fetchNews]);
 
@@ -148,7 +148,7 @@ export default function DigestScreen() {
         getSetting<boolean>('initialFetchDone', false),
       ]);
       if (count === 0 && !initialFetchDone) {
-        await fetchNewsRef.current();
+        await fetchNewsRef.current(false); // Use cache on initial fetch
         await setSetting('initialFetchDone', true);
       }
     };
@@ -167,12 +167,12 @@ export default function DigestScreen() {
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       if (appState.current.match(/inactive|background/) && nextState === 'active') {
-        fetchNews();
+        fetchNews(true); // Bypass cache on foreground
       }
       appState.current = nextState;
     });
 
-    const interval = setInterval(fetchNews, 5 * 60 * 1000);
+    const interval = setInterval(() => fetchNews(true), 5 * 60 * 1000); // Bypass cache on periodic fetch
 
     return () => {
       subscription.remove();
@@ -241,7 +241,7 @@ export default function DigestScreen() {
   if (loading && articles.length === 0) {
     return (
       <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
-        <View style={[styles.content, { paddingTop: insets.top }]}>
+        <View style={[styles.content, { paddingTop: insets.top + Spacing.lg, paddingBottom: insets.bottom + Spacing.xxl }]}>
           {[1, 2, 3].map((i) => (
             <ArticleSkeleton key={i} />
           ))}
@@ -253,7 +253,7 @@ export default function DigestScreen() {
   const isEmpty = articles.length === 0 && !searching && !loading;
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.bgPrimary, paddingTop: insets.top + Spacing.sm }]}>
+    <View style={[styles.container, { backgroundColor: colors.bgPrimary, paddingTop: insets.top + Spacing.lg }]}>
       <View style={{ marginBottom: Spacing.md }}>
         <SearchBar
           value={searchQuery}

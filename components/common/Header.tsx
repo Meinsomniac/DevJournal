@@ -29,7 +29,7 @@ export function Header({
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.bgPrimary, paddingTop: insets.top }]}>
+    <View style={[styles.container, { backgroundColor: colors.bgPrimary, paddingTop: insets.top + Spacing.lg }]}>
       <View style={styles.content}>
         <View style={styles.leftContent}>
           <Text style={[Typography.headlineLarge, { color: colors.textPrimary }]}>

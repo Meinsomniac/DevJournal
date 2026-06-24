@@ -14,6 +14,7 @@ import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { clearCache, clearAllData, getStorageStats, StorageStats } from '@/services/db';
 import { formatDate } from '@/utils/date';
+import { Header } from '@/components/common/Header';
 import {
   Moon,
   Sun,
@@ -132,10 +133,11 @@ export default function SettingsScreen() {
   ];
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: colors.bgPrimary }]}
-      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing.xxl, paddingTop: insets.top + Spacing.lg }]}
-    >
+    <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
+      <Header title="Settings" />
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing.xxl }]}
+      >
       {renderSection('Appearance',
         <>
           <View style={styles.themeRow}>
@@ -278,6 +280,7 @@ export default function SettingsScreen() {
         </Text>
       </View>
     </ScrollView>
+    </View>
   );
 }
 

@@ -20,7 +20,7 @@ import {
   getDisabledFeeds,
   getCustomFeeds,
   removeCustomFeed,
-  seedCustomFeedsIfNeeded,
+
 } from '@/services/db';
 import { Header } from '@/components/common/Header';
 import { SourceIcon } from '@/components/ui';
@@ -112,16 +112,11 @@ export default function FeedsScreen() {
 
   const loadFeeds = useCallback(async () => {
     try {
-      await seedCustomFeedsIfNeeded();
       const enabled = await getEnabledFeeds();
       const disabled = await getDisabledFeeds();
       const customs = await getCustomFeeds();
 
-      if (enabled.length === 0 && disabled.length === 0) {
-        setEnabledFeedsState(new Set(BUILTIN_FEEDS.map((s) => s.id)));
-      } else {
-        setEnabledFeedsState(new Set(enabled));
-      }
+      setEnabledFeedsState(new Set(enabled));
 
       setCustomFeeds(customs);
       bumpDataVersion();

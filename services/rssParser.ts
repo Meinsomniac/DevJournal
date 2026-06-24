@@ -2,7 +2,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { ArticleInput } from '@/types';
 import { stripHtml, extractImageFromHtml } from '@/utils/html';
 import { calculateImportanceScore } from './ranking';
-import { getEnabledFeeds, getDisabledFeeds, getCustomFeeds } from './db';
+import { getEnabledFeeds, getDisabledFeeds, getCustomFeeds, getFeedCache, saveFeedCache } from './db';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -133,36 +133,103 @@ function generateId(link: string, title: string, pubDate: number): string {
   return Math.abs(hash).toString(36);
 }
 
-const CUTOFF_STEP_DAYS = 7;
-const DEFAULT_MAX_ARTICLES = 20;
+const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes
 
 export async function fetchAndParseFeed(
   url: string,
   sourceName: string,
   iconUri?: string,
-  maxArticles?: number,
+  skipCache: boolean = false,
   keywords?: string[]
 ): Promise<ArticleInput[]> {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const now = Date.now();
+    let xml: string;
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'DevJournal/1.0 (https://github.com/devjournal-app)',
-        'Accept': 'application/xml, application/rss+xml, application/atom+xml, text/xml, */*',
-      },
-      signal: controller.signal,
-    });
+    // Check cache if not skipping
+    if (!skipCache) {
+      const cached = await getFeedCache(url);
+      if (cached && (now - cached.fetchedAt) < CACHE_TTL_MS) {
+        console.log(`[RSS] ${sourceName}: using cached feed (${Math.round((now - cached.fetchedAt) / 1000)}s old)`);
+        xml = cached.content;
+      } else {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-    clearTimeout(timeoutId);
+        // Prepare headers for conditional request
+        const headers: Record<string, string> = {
+          'User-Agent': 'DevJournal/1.0 (https://github.com/devjournal-app)',
+          'Accept': 'application/xml, application/rss+xml, application/atom+xml, text/xml, */*',
+        };
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+        // Add If-Modified-Since and If-None-Match if we have cached data
+        if (cached) {
+          if (cached.lastModified) {
+            headers['If-Modified-Since'] = cached.lastModified;
+          }
+          if (cached.etag) {
+            headers['If-None-Match'] = cached.etag;
+          }
+        }
+
+        const response = await fetch(url, {
+          method: 'GET',
+          headers,
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (response.status === 304) {
+          // Not modified, use cached content
+          console.log(`[RSS] ${sourceName}: 304 Not Modified, using cached feed`);
+          if (cached) {
+            xml = cached.content;
+            // Update cache timestamp but keep same content
+            await saveFeedCache(url, cached.content, cached.lastModified, cached.etag);
+          } else {
+            console.warn(`[RSS] ${sourceName}: 304 Not Modified but no cached content`);
+            return [];
+          }
+        } else if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        } else {
+          // Got new content, save it with ETag and Last-Modified
+          xml = await response.text();
+          
+          const lastModified = response.headers.get('Last-Modified');
+          const etag = response.headers.get('ETag');
+          await saveFeedCache(url, xml, lastModified, etag);
+        }
+      }
+    } else {
+      // Skip cache entirely (for auto-refetch)
+      console.log(`[RSS] ${sourceName}: skipping cache`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'DevJournal/1.0 (https://github.com/devjournal-app)',
+          'Accept': 'application/xml, application/rss+xml, application/atom+xml, text/xml, */*',
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      xml = await response.text();
+      
+      // Save to cache for future use
+      const lastModified = response.headers.get('Last-Modified');
+      const etag = response.headers.get('ETag');
+      await saveFeedCache(url, xml, lastModified, etag);
     }
-
-    const xml = await response.text();
 
     if (!xml.includes('<') || xml.length < 50) {
       console.warn(`[RSS] ${sourceName}: empty or invalid response (${xml.length} bytes)`);
@@ -190,7 +257,6 @@ export async function fetchAndParseFeed(
     }
 
     // Parse all items into ArticleInput once
-    const now = Date.now();
     const allArticles: ArticleInput[] = [];
 
     for (const item of items) {
@@ -235,36 +301,18 @@ export async function fetchAndParseFeed(
       console.log(`[RSS] ${sourceName}: keyword filter kept ${relevantArticles.length}/${allArticles.length} articles`);
     }
 
-    // Cascade: try 7 days, then 14, then 21... until articles are found
-    const limit = maxArticles ?? DEFAULT_MAX_ARTICLES;
-    let cutoffDays = CUTOFF_STEP_DAYS;
-
-    while (cutoffDays <= 365) {
-      const cutoff = now - cutoffDays * 24 * 60 * 60 * 1000;
-      const filtered = relevantArticles
-        .filter((a) => a.pub_date >= cutoff)
-        .sort((a, b) => b.pub_date - a.pub_date)
-        .slice(0, limit);
-
-      if (filtered.length > 0) {
-        if (cutoffDays > CUTOFF_STEP_DAYS) {
-          console.log(`[RSS] ${sourceName}: no articles in ${CUTOFF_STEP_DAYS}d, found ${filtered.length} in ${cutoffDays}d`);
-        }
-        return filtered;
-      }
-
-      cutoffDays += CUTOFF_STEP_DAYS;
-    }
-
-    console.warn(`[RSS] ${sourceName}: no articles found within 365 days`);
-    return [];
+    // Filter to last 7 days only, no cascade, no limit
+    const cutoff = now - 7 * 24 * 60 * 60 * 1000;
+    return relevantArticles
+      .filter((a) => a.pub_date >= cutoff)
+      .sort((a, b) => b.pub_date - a.pub_date);
   } catch (error) {
     console.error(`[RSS] Failed to fetch ${sourceName}:`, error);
     return [];
   }
 }
 
-export async function fetchAllFeeds(): Promise<ArticleInput[]> {
+export async function fetchAllFeeds(skipCache: boolean = false): Promise<ArticleInput[]> {
   const customFeeds = await getCustomFeeds();
   const enabledIds = await getEnabledFeeds();
   const disabledIds = await getDisabledFeeds();
@@ -278,7 +326,7 @@ export async function fetchAllFeeds(): Promise<ArticleInput[]> {
 
   const results = await Promise.allSettled(
     activeSources.map(source =>
-      fetchAndParseFeed(source.rss_url, source.name, source.icon)
+      fetchAndParseFeed(source.rss_url, source.name, source.icon, skipCache)
     )
   );
 
