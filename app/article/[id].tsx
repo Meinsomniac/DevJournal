@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, Text, Pressable, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, ScrollView, Text, Pressable, ActivityIndicator, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
@@ -127,13 +127,13 @@ export default function ArticleScreen() {
           headerTintColor: colors.textPrimary,
           headerStyle: { backgroundColor: colors.bgPrimary },
           headerRight: () => (
-            <AnimatedPressable onPress={handleBookmark} style={[styles.headerIcon, bookmarkAnimatedStyle]}>
-              <Bookmark
-                size={22}
-                color={article.is_bookmarked ? colors.warning : colors.textSecondary}
-                fill={article.is_bookmarked ? colors.warning : 'transparent'}
-              />
-            </AnimatedPressable>
+              <AnimatedPressable onPress={handleBookmark} style={[styles.headerIcon, bookmarkAnimatedStyle]}>
+                <Bookmark
+                  size={22}
+                  color={article.is_bookmarked ? colors.warning : colors.textSecondary}
+                  fill={article.is_bookmarked ? colors.warning : 'transparent'}
+                />
+              </AnimatedPressable>
           ),
         }}
       />
