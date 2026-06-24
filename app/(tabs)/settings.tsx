@@ -6,15 +6,17 @@ import {
   ScrollView,
   Pressable,
   Switch,
-  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '@/context/AppContext';
+import { useHaptics } from '@/hooks/useHaptics';
+import { toast } from 'sonner-native';
 import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { clearCache, clearAllData, getStorageStats, StorageStats } from '@/services/db';
 import { formatDate } from '@/utils/date';
 import { Header } from '@/components/common/Header';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import {
   Moon,
   Sun,
@@ -42,9 +44,12 @@ export default function SettingsScreen() {
     setNotifyBreaking,
     bumpDataVersion,
   } = useApp();
+
+  const { hapticLight, hapticMedium, hapticHeavy, hapticSuccess } = useHaptics();
   const insets = useSafeAreaInsets();
 
   const [storageStats, setStorageStats] = useState<StorageStats>({ count: 0, oldestDate: null, storageMb: 0 });
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   useEffect(() => {
     const loadStats = async () => {
@@ -59,41 +64,38 @@ export default function SettingsScreen() {
   }, []);
 
   const handleClearCache = useCallback(async () => {
+    hapticMedium();
     try {
       await clearCache();
       const stats = await getStorageStats();
       setStorageStats(stats);
       bumpDataVersion();
-      Alert.alert('Cache Cleared', 'All non-bookmarked articles have been removed.');
+      toast.success('Cache cleared');
     } catch (error) {
       console.error('Failed to clear cache:', error);
+      toast.error('Failed to clear cache');
     }
-  }, [bumpDataVersion]);
+  }, [bumpDataVersion, hapticMedium]);
 
   const handleClearAll = useCallback(() => {
-    Alert.alert(
-      'Clear All Data',
-      'This will delete all articles and bookmarks. Settings, feed sources, and preferences will be preserved. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete All',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await clearAllData();
-              const stats = await getStorageStats();
-              setStorageStats(stats);
-              bumpDataVersion();
-              Alert.alert('Data Cleared', 'All data has been removed.');
-            } catch (error) {
-              console.error('Failed to clear all data:', error);
-            }
-          },
-        },
-      ]
-    );
-  }, [bumpDataVersion]);
+    hapticHeavy();
+    setShowClearConfirm(true);
+  }, [hapticHeavy]);
+
+  const handleConfirmClearAll = useCallback(async () => {
+    setShowClearConfirm(false);
+    try {
+      await clearAllData();
+      const stats = await getStorageStats();
+      setStorageStats(stats);
+      bumpDataVersion();
+      toast.success('All data cleared');
+      hapticSuccess();
+    } catch (error) {
+      console.error('Failed to clear all data:', error);
+      toast.error('Failed to clear data');
+    }
+  }, [bumpDataVersion, hapticSuccess]);
 
   const renderSection = (title: string, children: React.ReactNode) => (
     <View style={styles.section}>
@@ -167,7 +169,7 @@ export default function SettingsScreen() {
             'Show more articles with smaller cards',
             <Switch
               value={compactMode}
-              onValueChange={setCompactMode}
+              onValueChange={(value) => { hapticLight(); setCompactMode(value); }}
               trackColor={{ false: colors.borderMedium, true: colors.brandPrimary + '50' }}
               thumbColor={compactMode ? colors.brandPrimary : colors.textTertiary}
             />
@@ -182,7 +184,7 @@ export default function SettingsScreen() {
             'Mark articles as read when you scroll past them',
             <Switch
               value={autoMarkRead}
-              onValueChange={setAutoMarkRead}
+              onValueChange={(value) => { hapticLight(); setAutoMarkRead(value); }}
               trackColor={{ false: colors.borderMedium, true: colors.brandPrimary + '50' }}
               thumbColor={autoMarkRead ? colors.brandPrimary : colors.textTertiary}
             />
@@ -197,7 +199,7 @@ export default function SettingsScreen() {
             'Notify you of high-importance stories from your feeds.',
             <Switch
               value={notifyBreaking}
-              onValueChange={setNotifyBreaking}
+              onValueChange={(value) => { hapticLight(); setNotifyBreaking(value); }}
               trackColor={{ false: colors.borderMedium, true: colors.brandPrimary + '50' }}
               thumbColor={notifyBreaking ? colors.brandPrimary : colors.textTertiary}
             />
@@ -280,6 +282,17 @@ export default function SettingsScreen() {
         </Text>
       </View>
     </ScrollView>
+
+      <ConfirmModal
+        visible={showClearConfirm}
+        title="Clear All Data"
+        message="This will delete all articles and bookmarks. Settings, feed sources, and preferences will be preserved. This cannot be undone."
+        confirmLabel="Delete All"
+        cancelLabel="Cancel"
+        destructive
+        onConfirm={handleConfirmClearAll}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </View>
   );
 }

@@ -9,18 +9,18 @@ import {
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { toast } from 'sonner-native';
 import { useTheme } from '@/hooks/useTheme';
 import { useApp } from '@/context/AppContext';
+import { useHaptics } from '@/hooks/useHaptics';
 import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { CustomFeed } from '@/types';
 import {
   getEnabledFeeds,
   setFeedEnabled,
-  getDisabledFeeds,
   getCustomFeeds,
   removeCustomFeed,
-
 } from '@/services/db';
 import { Header } from '@/components/common/Header';
 import { SourceIcon } from '@/components/ui';
@@ -105,6 +105,7 @@ type SectionData =
 export default function FeedsScreen() {
   const { colors } = useTheme();
   const { bumpDataVersion } = useApp();
+  const { hapticLight, hapticHeavy, hapticSuccess } = useHaptics();
   const insets = useSafeAreaInsets();
   const [enabledFeeds, setEnabledFeedsState] = useState<Set<string>>(new Set());
   const [customFeeds, setCustomFeeds] = useState<CustomFeed[]>([]);
@@ -113,7 +114,6 @@ export default function FeedsScreen() {
   const loadFeeds = useCallback(async () => {
     try {
       const enabled = await getEnabledFeeds();
-      const disabled = await getDisabledFeeds();
       const customs = await getCustomFeeds();
 
       const validIds = new Set([...BUILTIN_IDS, ...customs.map(f => f.id)]);
@@ -136,6 +136,7 @@ export default function FeedsScreen() {
   }, [loadFeeds]);
 
   const handleToggle = useCallback(async (id: string, enabled: boolean) => {
+    hapticLight();
     setEnabledFeedsState((prev) => {
       const next = new Set(prev);
       if (enabled) next.add(id);
@@ -144,7 +145,7 @@ export default function FeedsScreen() {
     });
     await setFeedEnabled(id, enabled);
     bumpDataVersion();
-  }, [bumpDataVersion]);
+  }, [bumpDataVersion, hapticLight]);
 
   const builtinFeeds = BUILTIN_FEEDS;
   const customOnlyFeeds = customFeeds.filter(f => !BUILTIN_IDS.has(f.id));
@@ -159,6 +160,7 @@ export default function FeedsScreen() {
   }, [bumpDataVersion, customOnlyFeeds]);
 
   const handleDelete = useCallback((id: string, name: string) => {
+    hapticHeavy();
     Alert.alert(
       'Remove Feed',
       `Remove "${name}" from your feeds?`,
@@ -170,11 +172,13 @@ export default function FeedsScreen() {
           onPress: async () => {
             await removeCustomFeed(id);
             await loadFeeds();
+            toast.success('Feed removed');
+            hapticSuccess();
           },
         },
       ]
     );
-  }, [loadFeeds]);
+  }, [loadFeeds, hapticHeavy, hapticSuccess]);
 
   const sections: SectionData[] = [];
   builtinFeeds.forEach(f => sections.push({ type: 'feed', feed: f, isCustom: false }));

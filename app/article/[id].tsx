@@ -3,7 +3,16 @@ import { View, StyleSheet, ScrollView, Text, Pressable, ActivityIndicator } from
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
-import { useTheme } from '@/hooks/useTheme';
+import { toast } from 'sonner-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  interpolate,
+} from 'react-native-reanimated';
+import { useApp } from '@/context/AppContext';
+import { useHaptics } from '@/hooks/useHaptics';
 import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { Article } from '@/types';
@@ -14,15 +23,27 @@ import { Bookmark, ExternalLink } from 'lucide-react-native';
 import { FEED_SOURCES } from '@/constants/Feeds';
 
 const ICON_BY_NAME = new Map(FEED_SOURCES.map((s) => [s.name, s.icon]));
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export default function ArticleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { colors } = useTheme();
+  const { colors, bumpDataVersion } = useApp();
+  const { hapticMedium } = useHaptics();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
   const [article, setArticle] = useState<Article | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const bookmarkScale = useSharedValue(1);
+  const bookmarkRotation = useSharedValue(0);
+
+  const bookmarkAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: bookmarkScale.value },
+      { rotate: `${interpolate(bookmarkRotation.value, [0, 1], [0, 10])}deg` },
+    ],
+  }));
 
   useEffect(() => {
     const loadArticle = async () => {
@@ -49,9 +70,21 @@ export default function ArticleScreen() {
   const handleBookmark = useCallback(async () => {
     if (!article) return;
 
+    const wasBookmarked = article.is_bookmarked;
+    hapticMedium();
+    // eslint-disable-next-line react-hooks/immutability
+    bookmarkScale.value = withSpring(1.3, { stiffness: 600, damping: 300 }, () => {
+      bookmarkScale.value = withSpring(1, { stiffness: 600, damping: 300 });
+    });
+    // eslint-disable-next-line react-hooks/immutability
+    bookmarkRotation.value = withTiming(1, { duration: 150 }, () => {
+      bookmarkRotation.value = withTiming(0, { duration: 150 });
+    });
     const newState = await toggleBookmark(article.id);
     setArticle({ ...article, is_bookmarked: newState });
-  }, [article]);
+    bumpDataVersion();
+    toast.success(wasBookmarked ? 'Removed from bookmarks' : 'Saved to bookmarks');
+  }, [article, hapticMedium, bumpDataVersion, bookmarkScale, bookmarkRotation]);
 
   const handleOpenExternal = useCallback(async () => {
     if (!article) return;
@@ -94,13 +127,13 @@ export default function ArticleScreen() {
           headerTintColor: colors.textPrimary,
           headerStyle: { backgroundColor: colors.bgPrimary },
           headerRight: () => (
-            <Pressable onPress={handleBookmark} style={styles.headerIcon}>
+            <AnimatedPressable onPress={handleBookmark} style={[styles.headerIcon, bookmarkAnimatedStyle]}>
               <Bookmark
                 size={22}
                 color={article.is_bookmarked ? colors.warning : colors.textSecondary}
                 fill={article.is_bookmarked ? colors.warning : 'transparent'}
               />
-            </Pressable>
+            </AnimatedPressable>
           ),
         }}
       />

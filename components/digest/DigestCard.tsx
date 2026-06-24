@@ -1,8 +1,17 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable, Image } from 'react-native';
 import { useRouter } from 'expo-router';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  withRepeat,
+  interpolate,
+} from 'react-native-reanimated';
 import { Article } from '@/types';
 import { useTheme } from '@/hooks/useTheme';
+import { useHaptics } from '@/hooks/useHaptics';
 import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { Shadows } from '@/constants/Shadows';
@@ -15,6 +24,8 @@ const ICON_BY_NAME = new Map(
   FEED_SOURCES.map((s) => [s.name, s.icon])
 );
 
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
 interface DigestCardProps {
   article: Article;
   variant?: 'full' | 'compact';
@@ -23,25 +34,73 @@ interface DigestCardProps {
 
 export const DigestCard = React.memo(function DigestCard({ article, variant = 'full', onBookmark }: DigestCardProps) {
   const { colors, isDark } = useTheme();
+  const { hapticMedium } = useHaptics();
   const router = useRouter();
   const iconUri = article.source_icon_uri ?? ICON_BY_NAME.get(article.source_name);
+
+  const scale = useSharedValue(1);
+  const bookmarkScale = useSharedValue(1);
+  const bookmarkRotation = useSharedValue(0);
+  const pulse = useSharedValue(1);
+
+  useEffect(() => {
+    if (article.importance_score === 5) {
+      pulse.value = withRepeat(
+        withTiming(1.2, { duration: 1500 }),
+        -1,
+        true
+      );
+    }
+  }, [article.importance_score, pulse]);
+
+  const cardAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const pulseAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulse.value }],
+  }));
+
+  const bookmarkAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: bookmarkScale.value },
+      { rotate: `${interpolate(bookmarkRotation.value, [0, 1], [0, 10])}deg` },
+    ],
+  }));
 
   const handlePress = () => {
     router.push(`/article/${article.id}`);
   };
 
+  const handlePressIn = () => {
+    scale.value = withTiming(0.97, { duration: 80 });
+  };
+
+  const handlePressOut = () => {
+    scale.value = withTiming(1, { duration: 120 });
+  };
+
   const handleBookmark = () => {
+    hapticMedium();
+    bookmarkScale.value = withSpring(1.3, { stiffness: 600, damping: 300 }, () => {
+      bookmarkScale.value = withSpring(1, { stiffness: 600, damping: 300 });
+    });
+    bookmarkRotation.value = withTiming(1, { duration: 150 }, () => {
+      bookmarkRotation.value = withTiming(0, { duration: 150 });
+    });
     onBookmark(article.id);
   };
 
   if (variant === 'compact') {
     return (
-      <Pressable
+      <AnimatedPressable
         onPress={handlePress}
-        style={({ pressed }) => [
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        style={[
+          cardAnimatedStyle,
           styles.compactContainer,
           { backgroundColor: colors.bgCard },
-          pressed && { backgroundColor: colors.bgCardHover },
         ]}
       >
         {article.image_uri && (
@@ -51,11 +110,11 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
           <View style={styles.compactTop}>
             <ImportanceStars score={article.importance_score} size={10} color={colors.warning} />
             {article.importance_score === 5 && (
-              <View style={[styles.importantBadgeSmall, { backgroundColor: colors.error + '20' }]}>
+              <Animated.View style={[styles.importantBadgeSmall, { backgroundColor: colors.error + '20' }, pulseAnimatedStyle]}>
                 <Text style={[Typography.labelSmall, { color: colors.error, fontSize: 9, fontWeight: '700' }]}>
                   Important
                 </Text>
-              </View>
+              </Animated.View>
             )}
           </View>
           <Text
@@ -78,29 +137,31 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
           </View>
         </View>
         <ChevronRight size={20} color={colors.textTertiary} />
-      </Pressable>
+      </AnimatedPressable>
     );
   }
 
   return (
-    <Pressable
+    <AnimatedPressable
       onPress={handlePress}
-      style={({ pressed }) => [
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      style={[
+        cardAnimatedStyle,
         styles.container,
         { backgroundColor: colors.bgCard },
         isDark ? Shadows.dark.card : Shadows.light.card,
-        pressed && { backgroundColor: colors.bgCardHover },
       ]}
     >
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <ImportanceStars score={article.importance_score} size={12} color={colors.warning} />
             {article.importance_score === 5 && (
-              <View style={[styles.importantBadge, { backgroundColor: colors.error + '20' }]}>
+              <Animated.View style={[styles.importantBadge, { backgroundColor: colors.error + '20' }, pulseAnimatedStyle]}>
                 <Text style={[Typography.labelSmall, { color: colors.error, fontWeight: '700' }]}>
                   Important
                 </Text>
-              </View>
+              </Animated.View>
             )}
         </View>
         <View style={styles.headerRight}>
@@ -160,16 +221,16 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
           </Text>
         </Pressable>
         <View style={styles.iconButtons}>
-          <Pressable onPress={handleBookmark} style={styles.iconButton}>
+          <AnimatedPressable onPress={handleBookmark} style={[styles.iconButton, bookmarkAnimatedStyle]}>
             <Bookmark
               size={18}
               color={colors.textSecondary}
               fill={article.is_bookmarked ? colors.textSecondary : 'transparent'}
             />
-          </Pressable>
+          </AnimatedPressable>
         </View>
       </View>
-    </Pressable>
+    </AnimatedPressable>
   );
 });
 

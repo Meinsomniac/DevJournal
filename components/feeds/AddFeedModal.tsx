@@ -15,6 +15,12 @@ import {
   Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { toast } from 'sonner-native';
+import ReAnimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+} from 'react-native-reanimated';
 import { useTheme } from '@/hooks/useTheme';
 import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
@@ -26,6 +32,8 @@ import {
 } from '@/services/feedDiscovery';
 import { moderateFeed } from '@/services/contentModeration';
 import { X, Plus, Globe, AlertTriangle } from 'lucide-react-native';
+
+const AnimatedPressable = ReAnimated.createAnimatedComponent(Pressable);
 
 interface AddFeedModalProps {
   visible: boolean;
@@ -52,7 +60,8 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
   const prevVisible = useRef(false);
   const feedReadyRef = useRef(false);
 
-  console.log({results})
+  const confirmScale = useSharedValue(0.8);
+  const confirmOpacity = useSharedValue(0);
 
   // Reset state when modal opens
   useEffect(() => {
@@ -72,6 +81,18 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
     }
     prevVisible.current = visible;
   }, [visible]);
+
+  const confirmAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: confirmScale.value }],
+    opacity: confirmOpacity.value,
+  }));
+
+  function animateConfirmIn() {
+    // eslint-disable-next-line react-hooks/immutability
+    confirmScale.value = withTiming(1, { duration: 250 });
+    // eslint-disable-next-line react-hooks/immutability
+    confirmOpacity.value = withTiming(1, { duration: 200 });
+  }
 
   const handleUrlChange = useCallback((text: string) => {
     setHttpWarning(/^http:\/\//i.test(text));
@@ -135,6 +156,8 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
     setError('');
     feedReadyRef.current = false;
 
+    animateConfirmIn();
+
     setCheckingFeed(true);
     setFeedValid(null);
     setModerationPassed(true);
@@ -156,11 +179,17 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
       setCheckingFeed(false);
       if (valid && moderation.allowed) {
         feedReadyRef.current = true;
+        toast.success('Feed validated and approved');
+      } else if (!moderation.allowed) {
+        toast.error('Feed contains prohibited content');
+      } else {
+        toast.error('Invalid RSS feed');
       }
     }).catch(() => {
       setCheckingFeed(false);
       setError('Failed to verify feed. Please try again.');
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleConfirmAdd = useCallback(async () => {
@@ -195,6 +224,7 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
     setAddingFeed(null);
     setUrl('');
     setResults([]);
+    toast.success('Feed added');
     onFeedAdded();
     onClose();
   }, [addingFeed, checkingFeed, feedValid, moderationPassed, customName, customIcon, onFeedAdded, onClose]);
@@ -325,9 +355,9 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
             )}
 
             {/* Confirm dialog */}
-            <Modal transparent visible={!!addingFeed} animationType="fade" onRequestClose={handleCancelAdd}>
+            <Modal transparent visible={!!addingFeed} animationType="none" onRequestClose={handleCancelAdd}>
               <Pressable style={styles.confirmBackdrop} onPress={handleCancelAdd}>
-                <Pressable style={[styles.confirmDialog, { backgroundColor: colors.bgCard }]} onPress={e => e.stopPropagation()}>
+                <AnimatedPressable style={[styles.confirmDialog, { backgroundColor: colors.bgCard }, confirmAnimatedStyle]} onPress={e => e.stopPropagation()}>
                   {/* Icon picker */}
                   <TouchableOpacity onPress={handlePickIcon} style={styles.confirmIconPicker}>
                     <View style={[styles.confirmIconWrapper, { backgroundColor: colors.bgTertiary }]}>
@@ -403,7 +433,7 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
                       <Text style={[Typography.labelMedium, { color: checkingFeed ? colors.textTertiary : colors.textInverse }]}>Add Feed</Text>
                     </TouchableOpacity>
                   </View>
-                </Pressable>
+                </AnimatedPressable>
               </Pressable>
             </Modal>
 

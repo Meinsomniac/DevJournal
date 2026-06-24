@@ -1,8 +1,12 @@
 import React from 'react';
 import { Pressable, Text, StyleSheet, ActivityIndicator, ViewStyle } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useTheme } from '@/hooks/useTheme';
+import { useAnimatedPress } from '@/hooks/useAnimatedPress';
 import { Typography } from '@/constants/Typography';
 import { BorderRadius, Spacing } from '@/constants/Spacing';
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 interface ButtonProps {
   title: string;
@@ -26,6 +30,7 @@ export function Button({
   style,
 }: ButtonProps) {
   const { colors } = useTheme();
+  const { animatedStyle, onPressIn, onPressOut } = useAnimatedPress(variant === 'ghost' ? 0.97 : 0.95);
 
   const getBackgroundColor = () => {
     if (disabled) return colors.textTertiary;
@@ -64,17 +69,19 @@ export function Button({
   };
 
   return (
-    <Pressable
+    <AnimatedPressable
       onPress={onPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
       disabled={disabled || loading}
-      style={({ pressed }) => [
+      style={[
+        animatedStyle,
         styles.button,
         sizeStyles[size],
         {
           backgroundColor: getBackgroundColor(),
           borderColor: variant === 'outline' ? colors.brandPrimary : 'transparent',
           borderWidth: variant === 'outline' ? 1 : 0,
-          opacity: pressed ? 0.8 : 1,
         },
         style,
       ]}
@@ -94,7 +101,7 @@ export function Button({
           </Text>
         </>
       )}
-    </Pressable>
+    </AnimatedPressable>
   );
 }
 

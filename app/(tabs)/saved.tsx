@@ -6,9 +6,10 @@ import {
   Pressable,
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
-import { useNavigation } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { toast } from 'sonner-native';
 import { useApp } from '@/context/AppContext';
+import { useHaptics } from '@/hooks/useHaptics';
 import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { Article } from '@/types';
@@ -21,15 +22,18 @@ import { DigestCard } from '@/components/digest';
 
 type TabType = 'bookmarks' | 'history';
 
+type HistorySectionItem = { type: 'header'; day: string; id: string } | { type: 'article'; article: Article; id: string };
+
 export default function SavedScreen() {
-  const { colors, compactMode, bumpDataVersion } = useApp();
+  const { colors, compactMode, bumpDataVersion, dataVersion } = useApp();
+  const { hapticMedium } = useHaptics();
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
 
   const [activeTab, setActiveTab] = useState<TabType>('bookmarks');
   const [bookmarks, setBookmarks] = useState<Article[]>([]);
   const [history, setHistory] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -43,27 +47,36 @@ export default function SavedScreen() {
       console.error('Failed to load saved data:', error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
   React.useEffect(() => {
-    const init = async () => { await loadData(); };
-    init();
-    const unsubscribe = navigation.addListener('focus', loadData);
-    return unsubscribe;
-  }, [loadData, navigation]);
+    const timer = setTimeout(() => loadData(), 0);
+    return () => clearTimeout(timer);
+  }, [loadData, dataVersion]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadData();
+  }, [loadData]);
 
   const handleToggleBookmark = useCallback(async (id: string) => {
+    const article = bookmarks.find(b => b.id === id);
+    const wasBookmarked = article?.is_bookmarked;
+    hapticMedium();
     await toggleBookmark(id);
     bumpDataVersion();
-    await loadData();
-  }, [loadData, bumpDataVersion]);
+    if (wasBookmarked) {
+      setBookmarks(prev => prev.filter(a => a.id !== id));
+    }
+    toast.success(wasBookmarked ? 'Removed from bookmarks' : 'Saved to bookmarks');
+  }, [bumpDataVersion, hapticMedium, bookmarks]);
 
   const displayData = activeTab === 'bookmarks' ? bookmarks : history;
 
-  // Group history by date
-  const groupedHistory = React.useMemo(() => {
-    if (activeTab !== 'history') return {};
+  const historySections = React.useMemo(() => {
+    if (activeTab !== 'history') return [];
 
     const groups: Record<string, Article[]> = {};
     history.forEach((article) => {
@@ -71,7 +84,13 @@ export default function SavedScreen() {
       if (!groups[day]) groups[day] = [];
       groups[day].push(article);
     });
-    return groups;
+
+    const flat: ({ type: 'header'; day: string; id: string } | { type: 'article'; article: Article; id: string })[] = [];
+    Object.entries(groups).forEach(([day, articles]) => {
+      flat.push({ type: 'header', day, id: `header-${day}` });
+      articles.forEach(article => flat.push({ type: 'article', article, id: article.id }));
+    });
+    return flat;
   }, [history, activeTab]);
 
   const renderBookmarkItem = useCallback(({ item }: { item: Article }) => (
@@ -82,37 +101,22 @@ export default function SavedScreen() {
     />
   ), [compactMode, handleToggleBookmark]);
 
-  const renderHistorySection = () => {
-    if (activeTab !== 'history') return null;
-
-    const sections = Object.entries(groupedHistory);
-
-    if (sections.length === 0) {
+  const renderHistoryItem = useCallback(({ item }: { item: HistorySectionItem }) => {
+    if (item.type === 'header') {
       return (
-        <EmptyState
-          icon={History}
-          title="No reading history"
-          description="Articles you've read will appear here."
-        />
+        <Text style={[Typography.headlineSmall, { color: colors.textPrimary, marginBottom: Spacing.sm, marginTop: Spacing.lg }]}>
+          {item.day}
+        </Text>
       );
     }
-
-    return sections.map(([day, articles]) => (
-      <View key={day} style={styles.historySection}>
-        <Text style={[Typography.headlineSmall, { color: colors.textPrimary }]}>
-          {day}
-        </Text>
-        {articles.map((article) => (
-          <DigestCard
-            key={article.id}
-            article={article}
-            variant={compactMode ? 'compact' : 'full'}
-            onBookmark={handleToggleBookmark}
-          />
-        ))}
-      </View>
-    ));
-  };
+    return (
+      <DigestCard
+        article={item.article}
+        variant={compactMode ? 'compact' : 'full'}
+        onBookmark={handleToggleBookmark}
+      />
+    );
+  }, [colors.textPrimary, compactMode, handleToggleBookmark]);
 
   if (loading) {
     return (
@@ -201,19 +205,24 @@ export default function SavedScreen() {
             { paddingBottom: insets.bottom + Spacing.xxl },
           ]}
           showsVerticalScrollIndicator={false}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
         />
       )}
 
       {activeTab === 'history' && (
         <FlashList
-          data={[{ key: 'sections' }]}
-          keyExtractor={() => 'sections'}
-          renderItem={() => <>{renderHistorySection()}</>}
+          data={historySections}
+          keyExtractor={(item) => item.id}
+          renderItem={renderHistoryItem}
+          getItemType={(item) => item.type}
           contentContainerStyle={[
             styles.listContent,
             { paddingBottom: insets.bottom + Spacing.xxl },
           ]}
           showsVerticalScrollIndicator={false}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
           ListEmptyComponent={
             <EmptyState
               icon={History}
@@ -243,6 +252,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: Spacing.lg,
     gap: Spacing.sm,
+    marginBottom: Spacing.sm,
   },
   tabButton: {
     flex: 1,

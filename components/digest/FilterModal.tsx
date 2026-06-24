@@ -8,6 +8,12 @@ import {
   ScrollView,
   TouchableOpacity,
 } from 'react-native';
+import { toast } from 'sonner-native';
+import ReAnimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+} from 'react-native-reanimated';
 import { useTheme } from '@/hooks/useTheme';
 import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
@@ -17,6 +23,8 @@ import {
   FeedSource,
 } from '@/types';
 import { SlidersHorizontal, Star, Check } from 'lucide-react-native';
+
+const AnimatedPressable = ReAnimated.createAnimatedComponent(Pressable);
 
 interface FilterModalProps {
   visible: boolean;
@@ -39,12 +47,22 @@ export function FilterModal({ visible, filters, onApply, onClear, onClose, sourc
   const [localFilters, setLocalFilters] = useState<FilterState>(filters);
   const prevVisible = useRef(false);
 
+  const slideUp = useSharedValue(300);
+
   useEffect(() => {
     if (visible && !prevVisible.current) {
       setLocalFilters(filters);
+      slideUp.value = withTiming(0, { duration: 300 });
+    }
+    if (!visible && prevVisible.current) {
+      slideUp.value = withTiming(300, { duration: 200 });
     }
     prevVisible.current = visible;
-  }, [visible, filters]);
+  }, [visible, filters, slideUp]);
+
+  const sheetAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: slideUp.value }],
+  }));
 
   const toggleSource = useCallback((source: FeedSource) => {
     setLocalFilters(prev => {
@@ -75,10 +93,12 @@ export function FilterModal({ visible, filters, onApply, onClear, onClose, sourc
   const handleClear = useCallback(() => {
     setLocalFilters(DEFAULT_FILTER);
     onClear();
+    toast.success('Filters cleared');
   }, [onClear]);
 
   const handleApply = useCallback(() => {
     onApply(localFilters);
+    toast.success('Filters applied');
   }, [onApply, localFilters]);
 
   const activeGroupCount =
@@ -90,11 +110,11 @@ export function FilterModal({ visible, filters, onApply, onClear, onClose, sourc
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
+      animationType="none"
       onRequestClose={onClose}
     >
       <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={[styles.sheet, { backgroundColor: colors.bgPrimary }]} onPress={e => e.stopPropagation()}>
+        <AnimatedPressable style={[styles.sheet, { backgroundColor: colors.bgPrimary }, sheetAnimatedStyle]} onPress={e => e.stopPropagation()}>
           <View style={styles.handleContainer}>
             <View style={[styles.handle, { backgroundColor: colors.borderMedium }]} />
           </View>
@@ -272,7 +292,7 @@ export function FilterModal({ visible, filters, onApply, onClear, onClose, sourc
               </Text>
             </TouchableOpacity>
           </View>
-        </Pressable>
+        </AnimatedPressable>
       </Pressable>
     </Modal>
   );

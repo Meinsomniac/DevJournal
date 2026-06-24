@@ -1,18 +1,19 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  RefreshControl,
-  ActivityIndicator,
-  AppState,
-  AppStateStatus,
-  Animated,
-  Pressable,
+  View, Text, StyleSheet, RefreshControl, ActivityIndicator,
+  AppState, AppStateStatus, Animated, Pressable,
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { toast } from 'sonner-native';
+import ReAnimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { useApp } from '@/context/AppContext';
+import { useHaptics } from '@/hooks/useHaptics';
 import { Spacing } from '@/constants/Spacing';
 import { Typography } from '@/constants/Typography';
 import { Article, FeedSource, FilterState, DEFAULT_FILTER } from '@/types';
@@ -25,8 +26,11 @@ import { DigestCard, FilterModal } from '@/components/digest';
 import { ArticleSkeleton, EmptyState, Button } from '@/components/ui';
 import { Newspaper, RefreshCw, ArrowUp } from 'lucide-react-native';
 
+const AnimatedPressable = ReAnimated.createAnimatedComponent(Pressable);
+
 export default function DigestScreen() {
-  const { colors, compactMode, dataVersion, notifyBreaking, autoMarkRead } = useApp();
+  const { colors, compactMode, dataVersion, notifyBreaking, autoMarkRead, bumpDataVersion } = useApp();
+  const { hapticMedium } = useHaptics();
   const insets = useSafeAreaInsets();
 
   const [articles, setArticles] = useState<Article[]>([]);
@@ -41,12 +45,32 @@ export default function DigestScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [enabledSources, setEnabledSources] = useState<FeedSource[]>([]);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appState = useRef(AppState.currentState);
   const listRef = useRef<any>(null);
   const scrollY = useMemo(() => new Animated.Value(0), []);
-  const fetchNewsRef = useRef<() => Promise<void>>(async () => {});
+  const fetchNewsRef = useRef<(skipCache: boolean) => Promise<void>>(async () => {});
   const markedReadRef = useRef<Set<string>>(new Set());
+
+  const fabScale = useSharedValue(0);
+  const listOpacity = useSharedValue(0);
+
+  const fabAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: fabScale.value }],
+  }));
+
+  const listAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: listOpacity.value,
+  }));
+
+  useEffect(() => {
+    if (initialLoadComplete) {
+      // eslint-disable-next-line react-hooks/immutability
+      listOpacity.value = withTiming(1, { duration: 400 });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialLoadComplete]);
 
   const viewabilityConfig = useMemo(() => ({
     itemVisiblePercentThreshold: 50,
@@ -103,6 +127,7 @@ export default function DigestScreen() {
     if (fetching) return;
     setHasMore(true);
     setFetching(true);
+    const loadingToastId = toast.loading('Fetching latest articles...');
     try {
       const rawArticles = await fetchAllFeeds(skipCache);
       const unique = deduplicateByLink(rawArticles);
@@ -115,6 +140,9 @@ export default function DigestScreen() {
       const saved = await saveArticles(unique);
       console.log(`Saved ${saved} new articles`);
 
+      toast.dismiss(loadingToastId);
+      toast.success(`${saved} new articles loaded`);
+
       if (breaking.length > 0) {
         await sendBreakingNotificationBatch(
           breaking.map(a => ({ title: a.title, sourceName: a.source_name, id: a.id }))
@@ -125,6 +153,8 @@ export default function DigestScreen() {
       await loadData(searchQuery);
     } catch (error) {
       console.error('Failed to fetch news:', error);
+      toast.dismiss(loadingToastId);
+      toast.error('Could not fetch feeds. Pull down to try again.');
     } finally {
       setFetching(false);
     }
@@ -132,7 +162,7 @@ export default function DigestScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchNews(false); // Don't bypass cache on pull to refresh
+    await fetchNews(false);
     setRefreshing(false);
   }, [fetchNews]);
 
@@ -143,12 +173,13 @@ export default function DigestScreen() {
   useEffect(() => {
     const init = async () => {
       await loadData(searchQuery);
+      setInitialLoadComplete(true);
       const [count, initialFetchDone] = await Promise.all([
         getArticleCount(),
         getSetting<boolean>('initialFetchDone', false),
       ]);
       if (count === 0 && !initialFetchDone) {
-        await fetchNewsRef.current(false); // Use cache on initial fetch
+        await fetchNewsRef.current(false);
         await setSetting('initialFetchDone', true);
       }
     };
@@ -167,12 +198,12 @@ export default function DigestScreen() {
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       if (appState.current.match(/inactive|background/) && nextState === 'active') {
-        fetchNews(true); // Bypass cache on foreground
+        fetchNews(true);
       }
       appState.current = nextState;
     });
 
-    const interval = setInterval(() => fetchNews(true), 5 * 60 * 1000); // Bypass cache on periodic fetch
+    const interval = setInterval(() => fetchNews(true), 5 * 60 * 1000);
 
     return () => {
       subscription.remove();
@@ -196,9 +227,11 @@ export default function DigestScreen() {
   }, [loadData]);
 
   const handleBookmark = useCallback(async (id: string) => {
-    await toggleBookmark(id);
-    await loadData(searchQuery);
-  }, [loadData, searchQuery]);
+    hapticMedium();
+    const newState = await toggleBookmark(id);
+    setArticles(prev => prev.map(a => a.id === id ? { ...a, is_bookmarked: newState } : a));
+    bumpDataVersion();
+  }, [hapticMedium, bumpDataVersion]);
 
   const handleOpenFilter = useCallback(() => {
     getEnabledFeedSources().then(setEnabledSources);
@@ -221,14 +254,34 @@ export default function DigestScreen() {
       useNativeDriver: false,
       listener: (event: any) => {
         const offsetY = event.nativeEvent.contentOffset.y;
-        setShowScrollTop(offsetY > 600);
+        const shouldShow = offsetY > 600;
+        if (shouldShow !== showScrollTop) {
+          setShowScrollTop(shouldShow);
+        }
       },
     }
   );
 
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/immutability
+    fabScale.value = withSpring(showScrollTop ? 1 : 0, { stiffness: 600, damping: 100 });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showScrollTop]);
+
+  function handleFabPressIn() {
+    // eslint-disable-next-line react-hooks/immutability
+    fabScale.value = withTiming(0.9, { duration: 60 });
+  }
+
+  function handleFabPressOut() {
+    // eslint-disable-next-line react-hooks/immutability
+    fabScale.value = withTiming(1, { duration: 100 });
+  }
+
   const scrollToTop = useCallback(() => {
+    hapticMedium();
     listRef.current?.scrollToOffset({ offset: 0, animated: true });
-  }, []);
+  }, [hapticMedium]);
 
   const renderArticle = useCallback(({ item }: { item: Article }) => (
     <DigestCard
@@ -295,7 +348,7 @@ export default function DigestScreen() {
           }
         />
       ) : (
-        <View style={{ flex: 1 }}>
+        <ReAnimated.View style={[{ flex: 1 }, listAnimatedStyle]}>
           <FlashList
             ref={listRef}
             data={articles}
@@ -338,9 +391,12 @@ export default function DigestScreen() {
             }
           />
           {showScrollTop && (
-            <Pressable
+            <AnimatedPressable
               onPress={scrollToTop}
+              onPressIn={handleFabPressIn}
+              onPressOut={handleFabPressOut}
               style={[
+                fabAnimatedStyle,
                 styles.fab,
                 {
                   backgroundColor: colors.brandPrimary,
@@ -349,48 +405,25 @@ export default function DigestScreen() {
               ]}
             >
               <ArrowUp size={24} color={colors.textInverse} />
-            </Pressable>
+            </AnimatedPressable>
           )}
-        </View>
+        </ReAnimated.View>
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-    padding: Spacing.lg,
-  },
-  listContent: {
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.sm,
-  },
-  searchingIndicator: {
-    paddingVertical: Spacing.md,
-    alignItems: 'center',
-  },
+  container: { flex: 1 },
+  content: { flex: 1, padding: Spacing.lg },
+  listContent: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm },
+  searchingIndicator: { paddingVertical: Spacing.md, alignItems: 'center' },
   footerLoader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: Spacing.lg,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: Spacing.lg,
   },
   fab: {
-    position: 'absolute',
-    right: Spacing.lg,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    position: 'absolute', right: Spacing.lg, width: 48, height: 48, borderRadius: 24,
+    alignItems: 'center', justifyContent: 'center', elevation: 6,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 4,
   },
 });
