@@ -464,6 +464,8 @@ const styles = StyleSheet.create({
     borderTopRightRadius: BorderRadius.xl,
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.xxl,
+    maxHeight: '80%',
+    minHeight: 300,
   },
   handleContainer: {
     alignItems: 'center',

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet, Pressable, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import Animated, {
@@ -6,7 +6,6 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
-  withRepeat,
   interpolate,
 } from 'react-native-reanimated';
 import { Article } from '@/types';
@@ -17,7 +16,8 @@ import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { Shadows } from '@/constants/Shadows';
 import { formatRelative } from '@/utils/date';
 import { ImportanceStars, SourceIcon } from '@/components/ui';
-import { Bookmark, ChevronRight } from 'lucide-react-native';
+import { toast } from 'sonner-native';
+import { Bookmark, ChevronRight, Sparkles } from 'lucide-react-native';
 import { FEED_SOURCES } from '@/constants/Feeds';
 
 const ICON_BY_NAME = new Map(
@@ -41,24 +41,8 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
   const scale = useSharedValue(1);
   const bookmarkScale = useSharedValue(1);
   const bookmarkRotation = useSharedValue(0);
-  const pulse = useSharedValue(1);
-
-  useEffect(() => {
-    if (article.importance_score === 5) {
-      pulse.value = withRepeat(
-        withTiming(1.2, { duration: 1500 }),
-        -1,
-        true
-      );
-    }
-  }, [article.importance_score, pulse]);
-
   const cardAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
-  }));
-
-  const pulseAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pulse.value }],
   }));
 
   const bookmarkAnimatedStyle = useAnimatedStyle(() => ({
@@ -108,14 +92,7 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
         )}
         <View style={styles.compactContent}>
           <View style={styles.compactTop}>
-            <ImportanceStars score={article.importance_score} size={10} color={colors.warning} />
-            {article.importance_score === 5 && (
-              <Animated.View style={[styles.importantBadgeSmall, { backgroundColor: colors.error + '20' }, pulseAnimatedStyle]}>
-                <Text style={[Typography.labelSmall, { color: colors.error, fontSize: 9, fontWeight: '700' }]}>
-                  Important
-                </Text>
-              </Animated.View>
-            )}
+            <ImportanceStars score={article.importance_score} size={10} color={colors.warning} animate={article.importance_score === 5} />
           </View>
           <Text
             style={[Typography.titleSmall, { color: colors.textPrimary }]}
@@ -155,14 +132,7 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
     >
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <ImportanceStars score={article.importance_score} size={12} color={colors.warning} />
-            {article.importance_score === 5 && (
-              <Animated.View style={[styles.importantBadge, { backgroundColor: colors.error + '20' }, pulseAnimatedStyle]}>
-                <Text style={[Typography.labelSmall, { color: colors.error, fontWeight: '700' }]}>
-                  Important
-                </Text>
-              </Animated.View>
-            )}
+          <ImportanceStars score={article.importance_score} size={12} color={colors.warning} animate={article.importance_score === 5} />
         </View>
         <View style={styles.headerRight}>
           </View>
@@ -215,9 +185,19 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
       )}
 
       <View style={styles.actions}>
-        <Pressable onPress={handlePress} style={styles.readButton}>
-          <Text style={[Typography.labelLarge, { color: colors.brandPrimary }]}>
-            Read
+        <Pressable
+          style={[styles.aiInsightButton, { opacity: 0.7 }]}
+          onPress={() => {
+            hapticMedium();
+            toast.info('AI Insights — coming soon');
+          }}
+        >
+          <Sparkles size={16} color={colors.textTertiary} style={{ marginRight: 6 }} />
+          <Text style={[Typography.labelLarge, { color: colors.textTertiary }]}>
+            AI Insight
+          </Text>
+          <Text style={[Typography.labelSmall, { color: colors.textTertiary, marginLeft: 4 }]}>
+            · Coming soon
           </Text>
         </Pressable>
         <View style={styles.iconButtons}>
@@ -257,16 +237,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-  },
-  importantBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.sm,
-  },
-  importantBadgeSmall: {
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: BorderRadius.sm,
   },
   compactTop: {
     flexDirection: 'row',
@@ -324,10 +294,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  readButton: {
+  aiInsightButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.md,
-    backgroundColor: 'rgba(14, 165, 233, 0.1)',
+    backgroundColor: 'rgba(128, 128, 128, 0.12)',
     borderRadius: BorderRadius.md,
   },
   iconButtons: {

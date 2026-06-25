@@ -230,8 +230,7 @@ export default function DigestScreen() {
     hapticMedium();
     const newState = await toggleBookmark(id);
     setArticles(prev => prev.map(a => a.id === id ? { ...a, is_bookmarked: newState } : a));
-    bumpDataVersion();
-  }, [hapticMedium, bumpDataVersion]);
+  }, [hapticMedium]);
 
   const handleOpenFilter = useCallback(() => {
     getEnabledFeedSources().then(setEnabledSources);
