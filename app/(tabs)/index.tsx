@@ -17,7 +17,7 @@ import { useHaptics } from '@/hooks/useHaptics';
 import { Spacing } from '@/constants/Spacing';
 import { Typography } from '@/constants/Typography';
 import { Article, FeedSource, FilterState, DEFAULT_FILTER } from '@/types';
-import { getDigestFeed, toggleBookmark, saveArticles, getFilteredArticles, getEnabledFeedSources, getNotifiedArticleIds, markArticlesNotified, getArticleCount, markRead, getSetting, setSetting } from '@/services/db';
+import { getDigestFeed, toggleBookmark, saveArticles, getFilteredArticles, getEnabledFeedSources, getNotifiedArticleIds, markArticlesNotified, getArticleCount, markRead, getSetting, setSetting, pruneOldArticles } from '@/services/db';
 import { fetchAllFeeds } from '@/services/rssParser';
 import { deduplicateByLink } from '@/services/ranking';
 import { sendBreakingNotificationBatch } from '@/services/notifications';
@@ -138,7 +138,8 @@ export default function DigestScreen() {
         : [];
 
       const saved = await saveArticles(unique);
-      console.log(`Saved ${saved} new articles`);
+      const pruned = await pruneOldArticles();
+      console.log(`Saved ${saved} new articles, pruned ${pruned} old`);
 
       toast.dismiss(loadingToastId);
       toast.success(`${saved} new articles loaded`);

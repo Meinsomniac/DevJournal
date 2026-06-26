@@ -6,6 +6,7 @@ import {
   ScrollView,
   Pressable,
   Switch,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '@/context/AppContext';
@@ -247,14 +248,14 @@ export default function SettingsScreen() {
 
       {renderSection('About',
         <>
-          <Pressable style={styles.linkRow}>
+          <Pressable style={styles.linkRow} onPress={() => Linking.openURL('https://meinsomniac.github.io/devjournal-pages/privacy.html')}>
             <Shield size={20} color={colors.textSecondary} />
             <Text style={[Typography.bodyMedium, { color: colors.textPrimary, flex: 1 }]}>
               Privacy Policy
             </Text>
             <ExternalLink size={18} color={colors.textTertiary} />
           </Pressable>
-          <Pressable style={styles.linkRow}>
+          <Pressable style={styles.linkRow} onPress={() => Linking.openURL('https://meinsomniac.github.io/devjournal-pages/terms.html')}>
             <FileText size={20} color={colors.textSecondary} />
             <Text style={[Typography.bodyMedium, { color: colors.textPrimary, flex: 1 }]}>
               Terms of Service
@@ -276,9 +277,6 @@ export default function SettingsScreen() {
       <View style={styles.footer}>
         <Text style={[Typography.bodySmall, { color: colors.textTertiary, textAlign: 'center' }]}>
           DevJournal - Daily tech news for developers
-        </Text>
-        <Text style={[Typography.labelSmall, { color: colors.textTertiary, marginTop: Spacing.xs }]}>
-          Made with React Native & Expo
         </Text>
       </View>
     </ScrollView>

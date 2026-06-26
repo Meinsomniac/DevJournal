@@ -1,14 +1,19 @@
-import { useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as SplashScreen from 'expo-splash-screen';
 import { Toaster } from 'sonner-native';
 import { useFonts, Geist_400Regular, Geist_500Medium, Geist_600SemiBold, Geist_700Bold } from '@expo-google-fonts/geist';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import { AppProvider, useApp } from '@/context/AppContext';
+import { AnimatedSplashScreen } from '@/components/common/AnimatedSplashScreen';
 import { seedCustomFeedsIfNeeded } from '@/services/db';
 import { requestNotificationPermissions, setupNotificationResponseHandler } from '@/services/notifications';
+
+SplashScreen.preventAutoHideAsync();
+SplashScreen.hideAsync();
 
 function ThemedLayout() {
   useFrameworkReady();
@@ -66,6 +71,11 @@ export default function RootLayout() {
     Geist_600SemiBold,
     Geist_700Bold,
   });
+  const [splashDone, setSplashDone] = useState(false);
+
+  if (!splashDone) {
+    return <AnimatedSplashScreen onFinish={() => setSplashDone(true)} />;
+  }
 
   if (!fontsLoaded) {
     return (

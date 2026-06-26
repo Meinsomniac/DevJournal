@@ -9,9 +9,8 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/images/icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#020617"
+      "backgroundColor": "#0e0e11"
     },
     "ios": {
       "supportsTablet": true,
@@ -25,7 +24,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
-        "backgroundColor": "#020617"
+        "backgroundColor": "#0e0e11"
       },
       "package": "com.devjournal.app"
     },
@@ -38,6 +37,7 @@
       "expo-router",
       "expo-font",
       "expo-web-browser",
+      "expo-splash-screen",
       "expo-sqlite"
     ],
     "experiments": {

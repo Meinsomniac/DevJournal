@@ -9,6 +9,7 @@ web-build/
 expo-env.d.ts
 knowledge/
 AppIcons/*
+icon-backups/*
 
 # native
 *.orig.*
