@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, Text, Pressable, ActivityIndicator, Platform } from 'react-native';
+import { View, StyleSheet, ScrollView, Text, Pressable, ActivityIndicator, Platform, Image } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
@@ -18,7 +18,7 @@ import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { Article } from '@/types';
 import { getArticleById, toggleBookmark, markRead } from '@/services/db';
 import { formatDateTime } from '@/utils/date';
-import { ImportanceStars, SourceIcon } from '@/components/ui';
+import { ImportanceStars, SourceIcon, BrokenImageIcon } from '@/components/ui';
 import { Bookmark, ExternalLink } from 'lucide-react-native';
 import { FEED_SOURCES } from '@/constants/Feeds';
 
@@ -34,6 +34,11 @@ export default function ArticleScreen() {
 
   const [article, setArticle] = useState<Article | null>(null);
   const [loading, setLoading] = useState(true);
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [id]);
 
   const bookmarkScale = useSharedValue(1);
   const bookmarkRotation = useSharedValue(0);
@@ -168,6 +173,19 @@ export default function ArticleScreen() {
           </View>
         </View>
 
+        {article.image_uri && !imgError ? (
+          <Image
+            source={{ uri: article.image_uri }}
+            style={[styles.articleImage, { backgroundColor: colors.borderLight }]}
+            resizeMode="cover"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <View style={[styles.imagePlaceholder, { backgroundColor: colors.borderLight }]}>
+            <BrokenImageIcon size={48} />
+          </View>
+        )}
+
         {article.summary && (
           <View style={styles.summarySection}>
             <Text style={[Typography.labelSmall, { color: colors.textTertiary, marginBottom: Spacing.sm }]}>
@@ -238,6 +256,20 @@ const styles = StyleSheet.create({
   },
   sourceName: {
     fontWeight: '600',
+  },
+  articleImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: BorderRadius.lg,
+    marginBottom: Spacing.lg,
+  },
+  imagePlaceholder: {
+    width: '100%',
+    height: 200,
+    borderRadius: BorderRadius.lg,
+    marginBottom: Spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   summarySection: {
     marginBottom: Spacing.xl,

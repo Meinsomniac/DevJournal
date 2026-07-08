@@ -9,6 +9,7 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
+      "image": "./assets/images/icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#0e0e11"
     },
@@ -19,7 +20,9 @@
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
         },
-        "UIBackgroundModes": ["fetch"]
+        "UIBackgroundModes": [
+          "processing"
+        ]
       }
     },
     "android": {
@@ -43,7 +46,8 @@
       "expo-font",
       "expo-web-browser",
       "expo-splash-screen",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-background-task"
     ],
     "experiments": {
       "typedRoutes": true

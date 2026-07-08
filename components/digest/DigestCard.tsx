@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import Animated, {
@@ -37,13 +37,14 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
   const { hapticMedium } = useHaptics();
   const router = useRouter();
   const iconUri = article.source_icon_uri ?? ICON_BY_NAME.get(article.source_name);
+  const [imgError, setImgError] = useState(false);
 
-  const scale = useSharedValue(1);
+  useEffect(() => {
+    setImgError(false);
+  }, [article.id]);
+
   const bookmarkScale = useSharedValue(1);
   const bookmarkRotation = useSharedValue(0);
-  const cardAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
 
   const bookmarkAnimatedStyle = useAnimatedStyle(() => ({
     transform: [
@@ -54,14 +55,6 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
 
   const handlePress = () => {
     router.push(`/article/${article.id}`);
-  };
-
-  const handlePressIn = () => {
-    scale.value = withTiming(0.97, { duration: 80 });
-  };
-
-  const handlePressOut = () => {
-    scale.value = withTiming(1, { duration: 120 });
   };
 
   const handleBookmark = () => {
@@ -79,16 +72,23 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
     return (
       <AnimatedPressable
         onPress={handlePress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
         style={[
-          cardAnimatedStyle,
           styles.compactContainer,
           { backgroundColor: colors.bgCard },
         ]}
       >
-        {article.image_uri && (
-          <Image source={{ uri: article.image_uri }} style={styles.compactImage} />
+        {article.image_uri && !imgError ? (
+          <Image source={{ uri: article.image_uri }} style={styles.compactImage} onError={() => setImgError(true)} />
+        ) : (
+          <View style={[styles.compactImage, { backgroundColor: colors.borderLight, alignItems: 'center', justifyContent: 'center' }]}>
+            <SourceIcon
+              iconUri={iconUri}
+              name={article.source_name}
+              size={20}
+              backgroundColor={colors.bgCard}
+              color={colors.textTertiary}
+            />
+          </View>
         )}
         <View style={styles.compactContent}>
           <View style={styles.compactTop}>
@@ -120,15 +120,12 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
 
   return (
     <AnimatedPressable
-      onPress={handlePress}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
-      style={[
-        cardAnimatedStyle,
-        styles.container,
-        { backgroundColor: colors.bgCard },
-        isDark ? Shadows.dark.card : Shadows.light.card,
-      ]}
+        onPress={handlePress}
+        style={[
+          styles.container,
+          { backgroundColor: colors.bgCard },
+          isDark ? Shadows.dark.card : Shadows.light.card,
+        ]}
     >
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -138,8 +135,8 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
           </View>
       </View>
 
-      {article.image_uri ? (
-        <Image source={{ uri: article.image_uri }} style={styles.image} />
+      {article.image_uri && !imgError ? (
+        <Image source={{ uri: article.image_uri }} style={styles.image} onError={() => setImgError(true)} />
       ) : (
         <View style={[styles.imagePlaceholder, { backgroundColor: colors.borderLight }]}>
           <SourceIcon

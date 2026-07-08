@@ -16,6 +16,7 @@ interface DatabaseInterface {
   getHistory(limit?: number): Promise<Article[]>;
   searchArticles(query: string, limit?: number): Promise<Article[]>;
   getArticleById(id: string): Promise<Article | null>;
+  getAllArticleIds(): Promise<Set<string>>;
   toggleBookmark(id: string): Promise<boolean>;
   markRead(id: string): Promise<void>;
   markAllRead(): Promise<void>;
@@ -229,7 +230,7 @@ class NativeDatabase implements DatabaseInterface {
     const db = await this.getDb();
     const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
     await db.runAsync(
-      'DELETE FROM articles_fts WHERE rowid IN (SELECT rowid FROM articles WHERE pub_date < ? AND is_bookmarked = 0)',
+      "INSERT INTO articles_fts(rowid, title, summary) SELECT rowid, NULL, NULL FROM articles WHERE pub_date < ? AND is_bookmarked = 0",
       [cutoff]
     );
     const result = await db.runAsync(
@@ -447,6 +448,12 @@ class NativeDatabase implements DatabaseInterface {
     );
   }
 
+  async getAllArticleIds(): Promise<Set<string>> {
+    const db = await this.getDb();
+    const rows = await db.getAllAsync<{ id: string }>('SELECT id FROM articles');
+    return new Set(rows.map(r => r.id));
+  }
+
   async toggleBookmark(id: string): Promise<boolean> {
     const db = await this.getDb();
     const row = await db.getFirstAsync<{ is_bookmarked: number }>(
@@ -567,14 +574,22 @@ class NativeDatabase implements DatabaseInterface {
 
   async clearAllData(): Promise<void> {
     const db = await this.getDb();
-    await db.runAsync('DELETE FROM articles_fts');
+    await db.runAsync('DROP TABLE IF EXISTS articles_fts');
     await db.runAsync('DELETE FROM articles');
+    await db.runAsync(
+      `CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
+        title,
+        summary,
+        content='',
+        tokenize='porter unicode61'
+      )`
+    );
   }
 
   async clearCache(): Promise<void> {
     const db = await this.getDb();
     await db.runAsync(
-      'DELETE FROM articles_fts WHERE rowid IN (SELECT rowid FROM articles WHERE is_bookmarked = 0)'
+      "INSERT INTO articles_fts(rowid, title, summary) SELECT rowid, NULL, NULL FROM articles WHERE is_bookmarked = 0"
     );
     await db.runAsync('DELETE FROM articles WHERE is_bookmarked = 0');
   }
@@ -583,7 +598,7 @@ class NativeDatabase implements DatabaseInterface {
     const db = await this.getDb();
     const placeholders = [...keepIds].map(() => '?').join(',');
     await db.withTransactionAsync(async () => {
-      await db.runAsync(`DELETE FROM articles_fts WHERE rowid IN (SELECT rowid FROM articles WHERE source_name NOT IN (SELECT name FROM custom_feeds WHERE id IN (${placeholders})))`, [...keepIds]);
+      await db.runAsync(`INSERT INTO articles_fts(rowid, title, summary) SELECT rowid, NULL, NULL FROM articles WHERE source_name NOT IN (SELECT name FROM custom_feeds WHERE id IN (${placeholders}))`, [...keepIds]);
       await db.runAsync(`DELETE FROM custom_feeds WHERE id NOT IN (${placeholders})`, [...keepIds]);
       await db.runAsync(`DELETE FROM feed_preferences WHERE feed_id NOT IN (${placeholders})`, [...keepIds]);
       await db.runAsync(`DELETE FROM articles WHERE source_name NOT IN (SELECT name FROM custom_feeds WHERE id IN (${placeholders}))`, [...keepIds]);
@@ -809,6 +824,10 @@ class WebDatabase implements DatabaseInterface {
 
   async getArticleById(id: string): Promise<Article | null> {
     return this.getArticles().find(a => a.id === id) || null;
+  }
+
+  async getAllArticleIds(): Promise<Set<string>> {
+    return new Set(this.getArticles().map(a => a.id));
   }
 
   async toggleBookmark(id: string): Promise<boolean> {
@@ -1040,6 +1059,10 @@ export function searchArticles(query: string, limit = 50): Promise<Article[]> {
 
 export function getArticleById(id: string): Promise<Article | null> {
   return getDb().getArticleById(id);
+}
+
+export function getAllArticleIds(): Promise<Set<string>> {
+  return getDb().getAllArticleIds();
 }
 
 export function toggleBookmark(id: string): Promise<boolean> {

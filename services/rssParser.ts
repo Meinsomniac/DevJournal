@@ -1,8 +1,9 @@
 import { XMLParser } from 'fast-xml-parser';
+import { load } from 'cheerio';
 import { ArticleInput } from '@/types';
 import { stripHtml, extractImageFromHtml } from '@/utils/html';
 import { calculateImportanceScore } from './ranking';
-import { getEnabledFeeds, getDisabledFeeds, getCustomFeeds, getFeedCache, saveFeedCache } from './db';
+import { getEnabledFeeds, getDisabledFeeds, getCustomFeeds, getFeedCache, saveFeedCache, getAllArticleIds } from './db';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -119,6 +120,75 @@ function extractImage(item: RawFeedItem): string | undefined {
   // 3. Extract from content
   const content = item['content:encoded'] || item.content || item.description || '';
   return extractImageFromHtml(content);
+}
+
+async function fetchArticleContent(url: string): Promise<{ summary?: string; image?: string } | undefined> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'DevJournal/1.0 (https://github.com/devjournal-app)',
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) return undefined;
+
+    const html = await response.text();
+    const $ = load(html);
+
+    // Extract image from meta tags or first img
+    let image: string | undefined;
+
+    // 1. og:image
+    $('meta[property="og:image"], meta[name="og:image"]').each((_, el) => {
+      const val = $(el).attr('content');
+      if (val && !image) image = val;
+    });
+
+    // 2. twitter:image
+    if (!image) {
+      $('meta[name="twitter:image"], meta[property="twitter:image"]').each((_, el) => {
+        const val = $(el).attr('content');
+        if (val && !image) image = val;
+      });
+    }
+
+    // 3. First <img> in article content
+    if (!image) {
+      $('article img, main img, .content img, .post img, .entry-content img').each((_, el) => {
+        const val = $(el).attr('src');
+        if (val && !image) image = val;
+      });
+    }
+
+    // Make relative URLs absolute
+    if (image && image.startsWith('/')) {
+      try {
+        const base = new URL(url);
+        image = `${base.protocol}//${base.host}${image}`;
+      } catch { /* keep relative */ }
+    }
+
+    // Extract summary
+    $('script, style, nav, footer, header, aside, .sidebar, .menu, .ad, .advertisement, noscript').remove();
+
+    let summary: string | undefined;
+    $('p').each((_, el) => {
+      const text = $(el).text().trim();
+      if (text.length > 80 && text.length < 500 && !summary) {
+        summary = text;
+      }
+    });
+
+    return { summary: summary || undefined, image: image || undefined };
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function generateId(link: string, title: string, pubDate: number): string {
@@ -288,6 +358,28 @@ export async function fetchAndParseFeed(
         console.error(`Failed to parse item from ${sourceName}:`, itemError);
       }
     }
+
+    // Fetch missing summaries and images from article pages in parallel
+    // Skip articles already in the database (previously processed)
+    const existingIds = await getAllArticleIds();
+    const contentFetchPromises = allArticles.map(async (article) => {
+      if (existingIds.has(article.id)) return;
+
+      const needsSummary = !article.summary || isLowQualitySummary(article.summary, article.title);
+      const needsImage = !article.image_uri;
+      if (!needsSummary && !needsImage) return;
+
+      const result = await fetchArticleContent(article.link);
+      if (!result) return;
+
+      if (needsSummary && result.summary) {
+        article.summary = result.summary;
+      }
+      if (needsImage && result.image) {
+        article.image_uri = result.image;
+      }
+    });
+    await Promise.allSettled(contentFetchPromises);
 
     // Keyword filter: if keywords provided, only keep articles matching at least one
     const relevantArticles = keywords && keywords.length > 0

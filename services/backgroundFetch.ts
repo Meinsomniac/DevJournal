@@ -1,4 +1,4 @@
-import * as BackgroundFetch from 'expo-background-fetch';
+import * as BackgroundTask from 'expo-background-task';
 import * as TaskManager from 'expo-task-manager';
 import { fetchAllFeeds } from './rssParser';
 import { saveArticles, pruneOldArticles, getNotifiedArticleIds, markArticlesNotified } from './db';
@@ -13,7 +13,7 @@ TaskManager.defineTask(BACKGROUND_FETCH_TASK, async () => {
   try {
     const articles = await fetchAllFeeds(true);
     if (articles.length === 0) {
-      return BackgroundFetch.BackgroundFetchResult.NoData;
+      return BackgroundTask.BackgroundTaskResult.Success;
     }
 
     const unique = deduplicateByLink(articles);
@@ -34,10 +34,10 @@ TaskManager.defineTask(BACKGROUND_FETCH_TASK, async () => {
       await markArticlesNotified(breaking.map((a) => a.id));
     }
 
-    return BackgroundFetch.BackgroundFetchResult.NewData;
+    return BackgroundTask.BackgroundTaskResult.Success;
   } catch (error) {
     console.error('[BackgroundFetch] Task failed:', error);
-    return BackgroundFetch.BackgroundFetchResult.Failed;
+    return BackgroundTask.BackgroundTaskResult.Failed;
   }
 });
 
@@ -49,10 +49,8 @@ export async function registerBackgroundFetch(): Promise<void> {
   }
 
   try {
-    await BackgroundFetch.registerTaskAsync(BACKGROUND_FETCH_TASK, {
-      minimumInterval: 60 * 60 * 1,
-      stopOnTerminate: false,
-      startOnBoot: true,
+    await BackgroundTask.registerTaskAsync(BACKGROUND_FETCH_TASK, {
+      minimumInterval: 60,
     });
     console.log('[BackgroundFetch] Registered successfully');
   } catch (error) {
@@ -62,7 +60,7 @@ export async function registerBackgroundFetch(): Promise<void> {
 
 export async function unregisterBackgroundFetch(): Promise<void> {
   try {
-    await BackgroundFetch.unregisterTaskAsync(BACKGROUND_FETCH_TASK);
+    await BackgroundTask.unregisterTaskAsync(BACKGROUND_FETCH_TASK);
     console.log('[BackgroundFetch] Unregistered');
   } catch (error) {
     console.error('[BackgroundFetch] Unregistration failed:', error);
