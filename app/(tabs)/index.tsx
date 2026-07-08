@@ -17,8 +17,9 @@ import { useHaptics } from '@/hooks/useHaptics';
 import { Spacing } from '@/constants/Spacing';
 import { Typography } from '@/constants/Typography';
 import { Article, FeedSource, FilterState, DEFAULT_FILTER } from '@/types';
-import { getDigestFeed, toggleBookmark, saveArticles, getFilteredArticles, getEnabledFeedSources, getNotifiedArticleIds, markArticlesNotified, getArticleCount, markRead, getSetting, setSetting, pruneOldArticles } from '@/services/db';
+import { getDigestFeed, toggleBookmark, saveArticles, getFilteredArticles, getEnabledFeedSources, getNotifiedArticleIds, markArticlesNotified, getArticleCount, markRead, getSetting, setSetting, pruneOldArticles, updateArticleNsfwStatus } from '@/services/db';
 import { fetchAllFeeds } from '@/services/rssParser';
+import { classifyImage, isNSFWReady } from '@/services/nsfwDetector';
 import { deduplicateByLink } from '@/services/ranking';
 import { sendBreakingNotificationBatch } from '@/services/notifications';
 import { SearchBar } from '@/components/common';
@@ -53,6 +54,54 @@ export default function DigestScreen() {
   const fetchNewsRef = useRef<(skipCache: boolean) => Promise<void>>(async () => {});
   const markedReadRef = useRef<Set<string>>(new Set());
 
+  // NSFW classification queue
+  const [classifyingIds, setClassifyingIds] = useState<Set<string>>(new Set());
+  const classifyingIdsRef = useRef<Set<string>>(new Set());
+  const classificationQueueRef = useRef<string[]>([]);
+  const isProcessingRef = useRef(false);
+  const articlesRef = useRef<Article[]>(articles);
+  articlesRef.current = articles;
+
+  const processQueue = useCallback(async () => {
+    if (isProcessingRef.current) return;
+    isProcessingRef.current = true;
+    while (classificationQueueRef.current.length > 0) {
+      const batch = classificationQueueRef.current.splice(0, 2);
+      await Promise.allSettled(
+        batch.map(async (articleId) => {
+          try {
+            const article = articlesRef.current.find((a) => a.id === articleId);
+            if (!article?.image_uri || article.nsfw_status !== 0) return;
+            const result = await classifyImage(article.image_uri, article.title);
+            if (!result) return;
+            const newStatus = result.isNSFW ? 2 : 1;
+            await updateArticleNsfwStatus(articleId, newStatus);
+            setArticles((prev) =>
+              prev.map((a) => (a.id === articleId ? { ...a, nsfw_status: newStatus } : a)),
+            );
+          } finally {
+            classifyingIdsRef.current.delete(articleId);
+            setClassifyingIds(new Set(classifyingIdsRef.current));
+          }
+        }),
+      );
+    }
+    isProcessingRef.current = false;
+  }, []);
+
+  const enqueueClassification = useCallback(
+    (article: Article) => {
+      if (classifyingIdsRef.current.has(article.id)) return;
+      classifyingIdsRef.current.add(article.id);
+      setClassifyingIds(new Set(classifyingIdsRef.current));
+      classificationQueueRef.current.push(article.id);
+      processQueue();
+    },
+    [processQueue],
+  );
+  const enqueueClassificationRef = useRef<(article: Article) => void>(() => {});
+  enqueueClassificationRef.current = enqueueClassification;
+
   const fabScale = useSharedValue(0);
   const listOpacity = useSharedValue(0);
 
@@ -76,15 +125,37 @@ export default function DigestScreen() {
     itemVisiblePercentThreshold: 50,
   }), []);
 
-  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: { item: Article }[] }) => {
-    if (!autoMarkRead) return;
-    viewableItems.forEach(({ item }) => {
-      if (!markedReadRef.current.has(item.id)) {
-        markedReadRef.current.add(item.id);
-        markRead(item.id);
+  const onViewableItemsChangedRef = useRef((...args: any[]) => {});
+  onViewableItemsChangedRef.current = ({ viewableItems }: { viewableItems: { item: Article }[] }) => {
+    // Auto mark read
+    if (autoMarkRead) {
+      viewableItems.forEach(({ item }) => {
+        if (!markedReadRef.current.has(item.id)) {
+          markedReadRef.current.add(item.id);
+          markRead(item.id);
+        }
+      });
+    }
+    // Classify visible + buffer articles
+    if (!isNSFWReady()) return;
+    const currentArticles = articlesRef.current;
+    const indices = viewableItems
+      .map((vi) => currentArticles.findIndex((a) => a.id === vi.item.id))
+      .filter((i) => i !== -1);
+    if (indices.length === 0) return;
+    const minIdx = Math.max(0, Math.min(...indices) - 4);
+    const maxIdx = Math.min(currentArticles.length - 1, Math.max(...indices) + 4);
+    for (let i = minIdx; i <= maxIdx; i++) {
+      const article = currentArticles[i];
+      if (article?.image_uri && article.nsfw_status === 0) {
+        enqueueClassificationRef.current(article);
       }
-    });
-  }, [autoMarkRead]);
+    }
+  };
+
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: { item: Article }[] }) => {
+    onViewableItemsChangedRef.current({ viewableItems });
+  }, []);
 
   const PAGE_SIZE = 50;
 
@@ -289,8 +360,9 @@ export default function DigestScreen() {
       article={item}
       variant={compactMode ? 'compact' : 'full'}
       onBookmark={handleBookmark}
+      isClassifying={classifyingIds.has(item.id)}
     />
-  ), [compactMode, handleBookmark]);
+  ), [compactMode, handleBookmark, classifyingIds]);
 
   if (loading && articles.length === 0) {
     return (

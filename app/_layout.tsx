@@ -12,6 +12,7 @@ import { AnimatedSplashScreen } from '@/components/common/AnimatedSplashScreen';
 import { seedCustomFeedsIfNeeded } from '@/services/db';
 import { registerBackgroundFetch } from '@/services/backgroundFetch';
 import { requestNotificationPermissions, setupNotificationResponseHandler } from '@/services/notifications';
+import { initNSFWModel } from '@/services/nsfwDetector';
 
 SplashScreen.preventAutoHideAsync();
 SplashScreen.hideAsync();
@@ -26,6 +27,7 @@ function ThemedLayout() {
     seedCustomFeedsIfNeeded();
     registerBackgroundFetch();
     requestNotificationPermissions();
+    initNSFWModel();
     const subscription = setupNotificationResponseHandler(
       (articleId) => router.push(`/article/${articleId}`)
     );

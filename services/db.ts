@@ -21,6 +21,7 @@ interface DatabaseInterface {
   markRead(id: string): Promise<void>;
   markAllRead(): Promise<void>;
   deleteBookmark(id: string): Promise<void>;
+  updateArticleNsfwStatus(id: string, status: number): Promise<void>;
   getUnreadCount(): Promise<number>;
   getArticleCount(): Promise<number>;
   getStorageStats(): Promise<StorageStats>;
@@ -70,7 +71,8 @@ class NativeDatabase implements DatabaseInterface {
         image_uri TEXT,
         importance_score INTEGER NOT NULL DEFAULT 1,
         is_bookmarked INTEGER NOT NULL DEFAULT 0,
-        is_read INTEGER NOT NULL DEFAULT 0
+        is_read INTEGER NOT NULL DEFAULT 0,
+        nsfw_status INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS idx_articles_pub_date ON articles(pub_date);
       CREATE INDEX IF NOT EXISTS idx_articles_importance ON articles(importance_score);
@@ -132,6 +134,40 @@ class NativeDatabase implements DatabaseInterface {
       );
     }
 
+    // Migration v2: add nsfw_status column if missing
+    const articleCols = await db.getAllAsync<{ name: string }>('PRAGMA table_info(articles)');
+    if (!articleCols.some(c => c.name === 'nsfw_status')) {
+      try {
+        await db.execAsync('ALTER TABLE articles ADD COLUMN nsfw_status INTEGER NOT NULL DEFAULT 0');
+      } catch {
+        // Recreate if ALTER fails
+        await db.execAsync(`
+          CREATE TABLE articles_reborn (
+            id TEXT PRIMARY KEY NOT NULL,
+            title TEXT NOT NULL,
+            link TEXT NOT NULL,
+            source_name TEXT NOT NULL,
+            source_icon_uri TEXT,
+            pub_date INTEGER NOT NULL,
+            fetched_at INTEGER NOT NULL,
+            summary TEXT,
+            image_uri TEXT,
+            importance_score INTEGER NOT NULL DEFAULT 1,
+            is_bookmarked INTEGER NOT NULL DEFAULT 0,
+            is_read INTEGER NOT NULL DEFAULT 0,
+            nsfw_status INTEGER NOT NULL DEFAULT 0
+          );
+          INSERT INTO articles_reborn SELECT id, title, link, source_name, source_icon_uri, pub_date, fetched_at, summary, image_uri, importance_score, is_bookmarked, is_read, 0 FROM articles;
+          DROP TABLE articles;
+          ALTER TABLE articles_reborn RENAME TO articles;
+          CREATE INDEX IF NOT EXISTS idx_articles_pub_date ON articles(pub_date);
+          CREATE INDEX IF NOT EXISTS idx_articles_importance ON articles(importance_score);
+          CREATE INDEX IF NOT EXISTS idx_articles_bookmarked ON articles(is_bookmarked);
+          CREATE INDEX IF NOT EXISTS idx_articles_read ON articles(is_read);
+        `);
+      }
+    }
+
     // Migration v1: remove category column from old databases
     for (const table of ['articles', 'custom_feeds']) {
       const cols = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`);
@@ -154,9 +190,10 @@ class NativeDatabase implements DatabaseInterface {
                 image_uri TEXT,
                 importance_score INTEGER NOT NULL DEFAULT 1,
                 is_bookmarked INTEGER NOT NULL DEFAULT 0,
-                is_read INTEGER NOT NULL DEFAULT 0
+                is_read INTEGER NOT NULL DEFAULT 0,
+                nsfw_status INTEGER NOT NULL DEFAULT 0
               );
-              INSERT INTO articles_reborn SELECT id, title, link, source_name, source_icon_uri, pub_date, fetched_at, summary, image_uri, importance_score, is_bookmarked, is_read FROM articles;
+              INSERT INTO articles_reborn SELECT id, title, link, source_name, source_icon_uri, pub_date, fetched_at, summary, image_uri, importance_score, is_bookmarked, is_read, 0 FROM articles;
               DROP TABLE articles;
               ALTER TABLE articles_reborn RENAME TO articles;
               CREATE INDEX IF NOT EXISTS idx_articles_pub_date ON articles(pub_date);
@@ -208,8 +245,8 @@ class NativeDatabase implements DatabaseInterface {
         );
         if (!existing) {
           const result = await db.runAsync(
-            `INSERT INTO articles (id, title, link, source_name, source_icon_uri, pub_date, fetched_at, summary, image_uri, importance_score, is_bookmarked, is_read)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`,
+            `INSERT INTO articles (id, title, link, source_name, source_icon_uri, pub_date, fetched_at, summary, image_uri, importance_score, is_bookmarked, is_read, nsfw_status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0)`,
             [a.id, a.title, a.link, a.source_name, a.source_icon_uri ?? null, a.pub_date, a.fetched_at, a.summary, a.image_uri ?? null, a.importance_score]
           );
           const rowid = result.lastInsertRowId;
@@ -474,6 +511,11 @@ class NativeDatabase implements DatabaseInterface {
     await db.runAsync('UPDATE articles SET is_read = 1 WHERE id = ?', [id]);
   }
 
+  async updateArticleNsfwStatus(id: string, status: number): Promise<void> {
+    const db = await this.getDb();
+    await db.runAsync('UPDATE articles SET nsfw_status = ? WHERE id = ?', [status, id]);
+  }
+
   async markAllRead(): Promise<void> {
     const db = await this.getDb();
     await db.runAsync('UPDATE articles SET is_read = 1');
@@ -675,7 +717,7 @@ class WebDatabase implements DatabaseInterface {
     let inserted = 0;
     for (const article of articles) {
       if (!existingIds.has(article.id)) {
-        existing.push({ ...article, is_bookmarked: false, is_read: false });
+        existing.push({ ...article, is_bookmarked: false, is_read: false, nsfw_status: 0 });
         inserted++;
       }
     }
@@ -843,6 +885,10 @@ class WebDatabase implements DatabaseInterface {
     const articles = this.getArticles();
     const idx = articles.findIndex(a => a.id === id);
     if (idx !== -1) { articles[idx].is_read = true; this.saveArticlesToStorage(articles); }
+  }
+
+  async updateArticleNsfwStatus(id: string, status: number): Promise<void> {
+    // no-op on web — NSFW classification not supported
   }
 
   async markAllRead(): Promise<void> {
@@ -1071,6 +1117,10 @@ export function toggleBookmark(id: string): Promise<boolean> {
 
 export function markRead(id: string): Promise<void> {
   return getDb().markRead(id);
+}
+
+export function updateArticleNsfwStatus(id: string, status: number): Promise<void> {
+  return getDb().updateArticleNsfwStatus(id, status);
 }
 
 export function markAllRead(): Promise<void> {

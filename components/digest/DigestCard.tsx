@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, Image } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, Pressable, Image, Animated as RNAnimated } from 'react-native';
 import { useRouter } from 'expo-router';
 import Animated, {
   useSharedValue,
@@ -15,7 +15,7 @@ import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { Shadows } from '@/constants/Shadows';
 import { formatRelative } from '@/utils/date';
-import { ImportanceStars, SourceIcon } from '@/components/ui';
+import { ImportanceStars, SourceIcon, BrokenImageIcon } from '@/components/ui';
 import { toast } from 'sonner-native';
 import { Bookmark, ChevronRight, Sparkles } from 'lucide-react-native';
 import { FEED_SOURCES } from '@/constants/Feeds';
@@ -30,9 +30,10 @@ interface DigestCardProps {
   article: Article;
   variant?: 'full' | 'compact';
   onBookmark: (id: string) => void;
+  isClassifying?: boolean;
 }
 
-export const DigestCard = React.memo(function DigestCard({ article, variant = 'full', onBookmark }: DigestCardProps) {
+export const DigestCard = React.memo(function DigestCard({ article, variant = 'full', onBookmark, isClassifying = false }: DigestCardProps) {
   const { colors, isDark } = useTheme();
   const { hapticMedium } = useHaptics();
   const router = useRouter();
@@ -42,6 +43,23 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
   useEffect(() => {
     setImgError(false);
   }, [article.id]);
+
+  const pulseAnim = useRef(new RNAnimated.Value(1)).current;
+
+  useEffect(() => {
+    if (isClassifying) {
+      const animation = RNAnimated.loop(
+        RNAnimated.sequence([
+          RNAnimated.timing(pulseAnim, { toValue: 0.1, duration: 700, useNativeDriver: true }),
+          RNAnimated.timing(pulseAnim, { toValue: 1, duration: 700, useNativeDriver: true }),
+        ]),
+      );
+      animation.start();
+      return () => animation.stop();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [isClassifying, pulseAnim]);
 
   const bookmarkScale = useSharedValue(1);
   const bookmarkRotation = useSharedValue(0);
@@ -77,9 +95,7 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
           { backgroundColor: colors.bgCard },
         ]}
       >
-        {article.image_uri && !imgError ? (
-          <Image source={{ uri: article.image_uri }} style={styles.compactImage} onError={() => setImgError(true)} />
-        ) : (
+        {!article.image_uri || imgError ? (
           <View style={[styles.compactImage, { backgroundColor: colors.borderLight, alignItems: 'center', justifyContent: 'center' }]}>
             <SourceIcon
               iconUri={iconUri}
@@ -89,6 +105,14 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
               color={colors.textTertiary}
             />
           </View>
+        ) : isClassifying ? (
+          <RNAnimated.View style={[styles.compactImage, { backgroundColor: colors.borderLight, opacity: pulseAnim }]} />
+        ) : article.nsfw_status === 2 ? (
+          <View style={[styles.compactImage, { backgroundColor: colors.borderLight, alignItems: 'center', justifyContent: 'center' }]}>
+            <BrokenImageIcon size={20} />
+          </View>
+        ) : (
+          <Image source={{ uri: article.image_uri }} style={styles.compactImage} onError={() => setImgError(true)} />
         )}
         <View style={styles.compactContent}>
           <View style={styles.compactTop}>
@@ -135,9 +159,7 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
           </View>
       </View>
 
-      {article.image_uri && !imgError ? (
-        <Image source={{ uri: article.image_uri }} style={styles.image} onError={() => setImgError(true)} />
-      ) : (
+      {!article.image_uri || imgError ? (
         <View style={[styles.imagePlaceholder, { backgroundColor: colors.borderLight }]}>
           <SourceIcon
             iconUri={iconUri}
@@ -147,6 +169,14 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
             color={colors.textTertiary}
           />
         </View>
+      ) : isClassifying ? (
+        <RNAnimated.View style={[styles.image, { backgroundColor: colors.borderLight, opacity: pulseAnim }]} />
+      ) : article.nsfw_status === 2 ? (
+        <View style={[styles.imagePlaceholder, { backgroundColor: colors.borderLight }]}>
+          <BrokenImageIcon size={32} />
+        </View>
+      ) : (
+        <Image source={{ uri: article.image_uri }} style={styles.image} onError={() => setImgError(true)} />
       )}
 
       <Text

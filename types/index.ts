@@ -11,6 +11,7 @@ export interface Article {
   importance_score: number; // 1-5
   is_bookmarked: boolean;
   is_read: boolean;
+  nsfw_status: number; // 0=unclassified, 1=clean, 2=nsfw
 }
 
 export interface ArticleInput {
