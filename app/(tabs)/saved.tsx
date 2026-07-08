@@ -54,11 +54,12 @@ export default function SavedScreen() {
     const wasBookmarked = article?.is_bookmarked;
     hapticMedium();
     await toggleBookmark(id);
+    bumpDataVersion();
     if (wasBookmarked) {
       setBookmarks(prev => prev.filter(a => a.id !== id));
     }
     toast.success(wasBookmarked ? 'Removed from bookmarks' : 'Saved to bookmarks');
-  }, [hapticMedium, bookmarks]);
+  }, [hapticMedium, bookmarks, bumpDataVersion]);
 
   const renderBookmarkItem = useCallback(({ item }: { item: Article }) => (
     <DigestCard

@@ -10,6 +10,7 @@ import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import { AppProvider, useApp } from '@/context/AppContext';
 import { AnimatedSplashScreen } from '@/components/common/AnimatedSplashScreen';
 import { seedCustomFeedsIfNeeded } from '@/services/db';
+import { registerBackgroundFetch } from '@/services/backgroundFetch';
 import { requestNotificationPermissions, setupNotificationResponseHandler } from '@/services/notifications';
 
 SplashScreen.preventAutoHideAsync();
@@ -23,6 +24,7 @@ function ThemedLayout() {
 
   useEffect(() => {
     seedCustomFeedsIfNeeded();
+    registerBackgroundFetch();
     requestNotificationPermissions();
     const subscription = setupNotificationResponseHandler(
       (articleId) => router.push(`/article/${articleId}`)

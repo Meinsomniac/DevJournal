@@ -195,8 +195,10 @@ export default function DigestScreen() {
     };
   }, []);
 
-  // Auto-fetch on app foreground and every 5 minutes
+  // Auto-fetch every 15 min while foregrounded + on app foreground
   useEffect(() => {
+    const interval = setInterval(() => fetchNews(true), 15 * 60 * 1000);
+
     const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       if (appState.current.match(/inactive|background/) && nextState === 'active') {
         fetchNews(true);
@@ -204,11 +206,9 @@ export default function DigestScreen() {
       appState.current = nextState;
     });
 
-    const interval = setInterval(() => fetchNews(true), 5 * 60 * 1000);
-
     return () => {
-      subscription.remove();
       clearInterval(interval);
+      subscription.remove();
     };
   }, [fetchNews]);
 
@@ -231,7 +231,8 @@ export default function DigestScreen() {
     hapticMedium();
     const newState = await toggleBookmark(id);
     setArticles(prev => prev.map(a => a.id === id ? { ...a, is_bookmarked: newState } : a));
-  }, [hapticMedium]);
+    bumpDataVersion();
+  }, [hapticMedium, bumpDataVersion]);
 
   const handleOpenFilter = useCallback(() => {
     getEnabledFeedSources().then(setEnabledSources);

@@ -18,7 +18,8 @@
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
-        }
+        },
+        "UIBackgroundModes": ["fetch"]
       }
     },
     "android": {
@@ -26,7 +27,11 @@
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#0e0e11"
       },
-      "package": "com.devjournal.app"
+      "package": "com.devjournal.app",
+      "permissions": [
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.FOREGROUND_SERVICE"
+      ]
     },
     "web": {
       "bundler": "metro",

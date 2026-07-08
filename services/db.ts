@@ -107,7 +107,29 @@ class NativeDatabase implements DatabaseInterface {
         etag TEXT,
         fetched_at INTEGER NOT NULL
       );
+
+      CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
+        title,
+        summary,
+        content='',
+        tokenize='porter unicode61'
+      );
     `);
+
+    // Migrate existing articles into FTS index
+    const ftsMigrated = await db.getFirstAsync<{ value: string }>(
+      "SELECT value FROM settings WHERE key = 'ftsMigrated'"
+    );
+    if (!ftsMigrated) {
+      await db.execAsync(`
+        INSERT INTO articles_fts(rowid, title, summary)
+        SELECT rowid, title, summary FROM articles;
+      `);
+      await db.runAsync(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, 'true')",
+        ['ftsMigrated']
+      );
+    }
 
     // Migration v1: remove category column from old databases
     for (const table of ['articles', 'custom_feeds']) {
@@ -184,11 +206,18 @@ class NativeDatabase implements DatabaseInterface {
           [a.id]
         );
         if (!existing) {
-          await db.runAsync(
+          const result = await db.runAsync(
             `INSERT INTO articles (id, title, link, source_name, source_icon_uri, pub_date, fetched_at, summary, image_uri, importance_score, is_bookmarked, is_read)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`,
             [a.id, a.title, a.link, a.source_name, a.source_icon_uri ?? null, a.pub_date, a.fetched_at, a.summary, a.image_uri ?? null, a.importance_score]
           );
+          const rowid = result.lastInsertRowId;
+          if (rowid) {
+            await db.runAsync(
+              'INSERT INTO articles_fts(rowid, title, summary) VALUES (?, ?, ?)',
+              [rowid, a.title, a.summary]
+            );
+          }
           inserted++;
         }
       }
@@ -199,6 +228,10 @@ class NativeDatabase implements DatabaseInterface {
   async pruneOldArticles(): Promise<number> {
     const db = await this.getDb();
     const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    await db.runAsync(
+      'DELETE FROM articles_fts WHERE rowid IN (SELECT rowid FROM articles WHERE pub_date < ? AND is_bookmarked = 0)',
+      [cutoff]
+    );
     const result = await db.runAsync(
       'DELETE FROM articles WHERE pub_date < ? AND is_bookmarked = 0',
       [cutoff]
@@ -371,11 +404,39 @@ class NativeDatabase implements DatabaseInterface {
 
   async searchArticles(query: string, limit = 50): Promise<Article[]> {
     const db = await this.getDb();
-    const pattern = `%${query}%`;
-    return db.getAllAsync<Article>(
-      `SELECT * FROM articles WHERE title LIKE ? OR summary LIKE ? ORDER BY pub_date DESC LIMIT ?`,
-      [pattern, pattern, limit]
-    );
+    const safeQuery = query.replace(/"/g, '').trim();
+
+    if (!safeQuery) return this.getDigestFeed(limit);
+
+    // Short queries (< 3 chars) use LIKE for substring matching
+    if (safeQuery.length < 3) {
+      const pattern = `%${safeQuery}%`;
+      return db.getAllAsync<Article>(
+        `SELECT * FROM articles WHERE title LIKE ? OR summary LIKE ?
+         ORDER BY pub_date DESC LIMIT ?`,
+        [pattern, pattern, limit]
+      );
+    }
+
+    // FTS5 query with BM25 ranking
+    try {
+      return db.getAllAsync<Article>(
+        `SELECT a.* FROM articles a
+         JOIN articles_fts fts ON a.rowid = fts.rowid
+         WHERE articles_fts MATCH ?
+         ORDER BY rank
+         LIMIT ?`,
+        [safeQuery, limit]
+      );
+    } catch {
+      // Fallback to LIKE if FTS query syntax is invalid
+      const pattern = `%${safeQuery}%`;
+      return db.getAllAsync<Article>(
+        `SELECT * FROM articles WHERE title LIKE ? OR summary LIKE ?
+         ORDER BY pub_date DESC LIMIT ?`,
+        [pattern, pattern, limit]
+      );
+    }
   }
 
   async getArticleById(id: string): Promise<Article | null> {
@@ -506,11 +567,15 @@ class NativeDatabase implements DatabaseInterface {
 
   async clearAllData(): Promise<void> {
     const db = await this.getDb();
+    await db.runAsync('DELETE FROM articles_fts');
     await db.runAsync('DELETE FROM articles');
   }
 
   async clearCache(): Promise<void> {
     const db = await this.getDb();
+    await db.runAsync(
+      'DELETE FROM articles_fts WHERE rowid IN (SELECT rowid FROM articles WHERE is_bookmarked = 0)'
+    );
     await db.runAsync('DELETE FROM articles WHERE is_bookmarked = 0');
   }
 
@@ -518,6 +583,7 @@ class NativeDatabase implements DatabaseInterface {
     const db = await this.getDb();
     const placeholders = [...keepIds].map(() => '?').join(',');
     await db.withTransactionAsync(async () => {
+      await db.runAsync(`DELETE FROM articles_fts WHERE rowid IN (SELECT rowid FROM articles WHERE source_name NOT IN (SELECT name FROM custom_feeds WHERE id IN (${placeholders})))`, [...keepIds]);
       await db.runAsync(`DELETE FROM custom_feeds WHERE id NOT IN (${placeholders})`, [...keepIds]);
       await db.runAsync(`DELETE FROM feed_preferences WHERE feed_id NOT IN (${placeholders})`, [...keepIds]);
       await db.runAsync(`DELETE FROM articles WHERE source_name NOT IN (SELECT name FROM custom_feeds WHERE id IN (${placeholders}))`, [...keepIds]);
