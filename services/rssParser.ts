@@ -3,7 +3,7 @@ import { load } from 'cheerio';
 import { ArticleInput } from '@/types';
 import { stripHtml, extractImageFromHtml } from '@/utils/html';
 import { calculateImportanceScore } from './ranking';
-import { getEnabledFeeds, getDisabledFeeds, getCustomFeeds, getFeedCache, saveFeedCache, getAllArticleIds } from './db';
+import { getEnabledFeeds, getDisabledFeeds, getCustomFeeds, getFeedCache, saveFeedCache, filterExistingArticles } from './db';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -14,6 +14,33 @@ const parser = new XMLParser({
   processEntities: false,
   htmlEntities: false,
 });
+
+const CONCURRENCY_LIMIT = 3;
+const YIELD_INTERVAL = 50;
+
+async function limitedConcurrency<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
+  const results: T[] = [];
+  const executing: Promise<void>[] = [];
+  
+  for (const task of tasks) {
+    const p = task().then(r => { results.push(r); });
+    executing.push(p);
+    if (executing.length >= limit) {
+      await Promise.race(executing);
+      const idx = executing.findIndex(e => e === p);
+      if (idx >= 0) executing.splice(idx, 1);
+    }
+  }
+  await Promise.all(executing);
+  return results;
+}
+
+function yieldIfNeeded(counter: number): Promise<void> {
+  if (counter % YIELD_INTERVAL === 0) {
+    return new Promise(resolve => setTimeout(resolve, 0));
+  }
+  return Promise.resolve();
+}
 
 interface RawFeedItem {
   title?: string;
@@ -203,7 +230,40 @@ function generateId(link: string, title: string, pubDate: number): string {
   return Math.abs(hash).toString(36);
 }
 
-const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes
+const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes default
+
+interface FeedFrequency {
+  lastFetched: number;
+  intervalMs: number;
+}
+
+const feedFrequencyMap = new Map<string, FeedFrequency>();
+
+function getAdaptiveTTL(url: string): number {
+  const freq = feedFrequencyMap.get(url);
+  if (!freq) return CACHE_TTL_MS;
+  
+  const now = Date.now();
+  const timeSinceLastFetch = now - freq.lastFetched;
+  
+  if (timeSinceLastFetch < freq.intervalMs * 0.5) {
+    return Math.max(freq.intervalMs, 5 * 60 * 1000);
+  }
+  return freq.intervalMs;
+}
+
+function updateFeedFrequency(url: string): void {
+  const now = Date.now();
+  const freq = feedFrequencyMap.get(url);
+  if (freq) {
+    const observedInterval = now - freq.lastFetched;
+    freq.intervalMs = Math.round((freq.intervalMs * 0.7) + (observedInterval * 0.3));
+    freq.intervalMs = Math.max(5 * 60 * 1000, Math.min(freq.intervalMs, 6 * 60 * 60 * 1000));
+    freq.lastFetched = now;
+  } else {
+    feedFrequencyMap.set(url, { lastFetched: now, intervalMs: 60 * 60 * 1000 });
+  }
+}
 
 export async function fetchAndParseFeed(
   url: string,
@@ -216,10 +276,12 @@ export async function fetchAndParseFeed(
     const now = Date.now();
     let xml: string;
 
+    const adaptiveTTL = skipCache ? 0 : getAdaptiveTTL(url);
+
     // Check cache if not skipping
     if (!skipCache) {
       const cached = await getFeedCache(url);
-      if (cached && (now - cached.fetchedAt) < CACHE_TTL_MS) {
+      if (cached && (now - cached.fetchedAt) < adaptiveTTL) {
         console.log(`[RSS] ${sourceName}: using cached feed (${Math.round((now - cached.fetchedAt) / 1000)}s old)`);
         xml = cached.content;
       } else {
@@ -230,6 +292,7 @@ export async function fetchAndParseFeed(
         const headers: Record<string, string> = {
           'User-Agent': 'DevJournal/1.0 (https://github.com/devjournal-app)',
           'Accept': 'application/xml, application/rss+xml, application/atom+xml, text/xml, */*',
+          'Accept-Encoding': 'gzip, deflate',
         };
 
         // Add If-Modified-Since and If-None-Match if we have cached data
@@ -283,6 +346,7 @@ export async function fetchAndParseFeed(
         headers: {
           'User-Agent': 'DevJournal/1.0 (https://github.com/devjournal-app)',
           'Accept': 'application/xml, application/rss+xml, application/atom+xml, text/xml, */*',
+          'Accept-Encoding': 'gzip, deflate',
         },
         signal: controller.signal,
       });
@@ -329,7 +393,9 @@ export async function fetchAndParseFeed(
     // Parse all items into ArticleInput once
     const allArticles: ArticleInput[] = [];
 
-    for (const item of items) {
+    for (let i = 0; i < items.length; i++) {
+      await yieldIfNeeded(i);
+      const item = items[i];
       try {
         const link = extractLink(item);
         if (!link) continue;
@@ -359,12 +425,29 @@ export async function fetchAndParseFeed(
       }
     }
 
-    // Fetch missing summaries and images from article pages in parallel
-    // Skip articles already in the database (previously processed)
-    const existingIds = await getAllArticleIds();
-    const contentFetchPromises = allArticles.map(async (article) => {
-      if (existingIds.has(article.id)) return;
+    // KEYWORD FILTER FIRST - before expensive content enrichment
+    const relevantArticles = keywords && keywords.length > 0
+      ? allArticles.filter((a) => {
+          const text = `${a.title} ${a.summary}`.toLowerCase();
+          return keywords.some((kw) => text.includes(kw.toLowerCase()));
+        })
+      : allArticles;
 
+    if (keywords && keywords.length > 0 && relevantArticles.length < allArticles.length) {
+      console.log(`[RSS] ${sourceName}: keyword filter kept ${relevantArticles.length}/${allArticles.length} articles`);
+    }
+
+    // Filter to last 7 days before enrichment
+    const cutoff = now - 7 * 24 * 60 * 60 * 1000;
+    const recentArticles = relevantArticles
+      .filter((a) => a.pub_date >= cutoff)
+      .sort((a, b) => b.pub_date - a.pub_date);
+
+    // Batch check existing articles - single DB query
+    const newArticles = await filterExistingArticles(recentArticles);
+
+    // Fetch missing summaries and images from article pages with concurrency limit
+    const contentFetchTasks = newArticles.map((article) => async () => {
       const needsSummary = !article.summary || isLowQualitySummary(article.summary, article.title);
       const needsImage = !article.image_uri;
       if (!needsSummary && !needsImage) return;
@@ -379,25 +462,11 @@ export async function fetchAndParseFeed(
         article.image_uri = result.image;
       }
     });
-    await Promise.allSettled(contentFetchPromises);
 
-    // Keyword filter: if keywords provided, only keep articles matching at least one
-    const relevantArticles = keywords && keywords.length > 0
-      ? allArticles.filter((a) => {
-          const text = `${a.title} ${a.summary}`.toLowerCase();
-          return keywords.some((kw) => text.includes(kw.toLowerCase()));
-        })
-      : allArticles;
+    await limitedConcurrency(contentFetchTasks, CONCURRENCY_LIMIT);
 
-    if (keywords && keywords.length > 0 && relevantArticles.length < allArticles.length) {
-      console.log(`[RSS] ${sourceName}: keyword filter kept ${relevantArticles.length}/${allArticles.length} articles`);
-    }
-
-    // Filter to last 7 days only, no cascade, no limit
-    const cutoff = now - 7 * 24 * 60 * 60 * 1000;
-    return relevantArticles
-      .filter((a) => a.pub_date >= cutoff)
-      .sort((a, b) => b.pub_date - a.pub_date);
+    updateFeedFrequency(url);
+    return newArticles;
   } catch (error) {
     console.error(`[RSS] Failed to fetch ${sourceName}:`, error);
     return [];

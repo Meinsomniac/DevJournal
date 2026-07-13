@@ -1,12 +1,9 @@
 import * as tf from '@tensorflow/tfjs';
 import '@tensorflow/tfjs-react-native/dist/platform_react_native';
+import { bundleResourceIO } from '@tensorflow/tfjs-react-native/dist/bundle_resource_io';
 import { decodeJpeg } from '@tensorflow/tfjs-react-native/dist/decode_image';
-import * as ImageManipulator from 'expo-image-manipulator';
-import { File, Paths } from 'expo-file-system';
 
-const MODEL_URL =
-  'https://cdn.jsdelivr.net/gh/infinitered/nsfwjs@v4.3.0/models/mobilenet_v2_mid/model.json';
-
+// ── CONFIG ──
 const CLASS_NAMES = ['Drawing', 'Hentai', 'Neutral', 'Porn', 'Sexy'] as const;
 
 const THRESHOLDS: Record<string, number> = {
@@ -18,6 +15,7 @@ const THRESHOLDS: Record<string, number> = {
 let model: tf.GraphModel | null = null;
 let initializing: Promise<void> | null = null;
 
+// ── PUBLIC API ──
 export function isNSFWReady(): boolean {
   return model !== null;
 }
@@ -28,8 +26,17 @@ export async function initNSFWModel(): Promise<void> {
   initializing = (async () => {
     try {
       await tf.ready();
-      model = await tf.loadGraphModel(MODEL_URL);
-      console.log('[NSFW] Model loaded');
+      console.log('[NSFW] TF backend ready:', tf.getBackend());
+
+      const modelJson = require('../assets/models/nsfw/model.json');
+      const modelWeights = [
+        require('../assets/models/nsfw/group1-shard1of2.bin'),
+        require('../assets/models/nsfw/group1-shard2of2.bin'),
+      ];
+
+      const ioHandler = bundleResourceIO(modelJson, modelWeights);
+      model = await tf.loadGraphModel(ioHandler);
+      console.log('[NSFW] Model loaded successfully');
     } catch (error) {
       console.error('[NSFW] Model init failed:', error);
       model = null;
@@ -47,32 +54,16 @@ export interface ClassificationResult {
 
 export async function classifyImage(
   imageUrl: string,
-  articleTitle?: string
+  articleTitle?: string,
 ): Promise<ClassificationResult | null> {
   if (!model) return null;
 
-  let tempFile: File | undefined;
-  let resizedUri: string | undefined;
-
   try {
-    tempFile = new File(Paths.cache, `nsfw_${Date.now()}.jpg`);
-    await File.downloadFileAsync(imageUrl, tempFile, { idempotent: true });
+    const response = await fetch(imageUrl);
+    if (!response.ok) return null;
 
-    const manipResult = await ImageManipulator.manipulateAsync(
-      tempFile.uri,
-      [{ resize: { width: 224, height: 224 } }],
-      { format: ImageManipulator.SaveFormat.JPEG, compress: 1.0 },
-    );
-    resizedUri = manipResult.uri;
-
-    const resizedFile = new File(resizedUri);
-    const imgB64 = await resizedFile.base64();
-
-    const binaryStr = atob(imgB64);
-    const imgBytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      imgBytes[i] = binaryStr.charCodeAt(i);
-    }
+    const arrayBuffer = await response.arrayBuffer();
+    const imgBytes = new Uint8Array(arrayBuffer);
 
     const probabilities = tf.tidy(() => {
       const imageTensor = decodeJpeg(imgBytes, 3);
@@ -99,13 +90,5 @@ export async function classifyImage(
   } catch (error) {
     console.warn('[NSFW] classifyImage failed:', error);
     return null;
-  } finally {
-    try {
-      if (tempFile && tempFile.exists) tempFile.delete();
-      if (resizedUri) {
-        const f = new File(resizedUri);
-        if (f.exists) f.delete();
-      }
-    } catch { /* ignore cleanup errors */ }
   }
 }

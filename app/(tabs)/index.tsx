@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import {
   View, Text, StyleSheet, RefreshControl, ActivityIndicator,
   AppState, AppStateStatus, Animated, Pressable,
+  InteractionManager,
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,6 +23,7 @@ import { fetchAllFeeds } from '@/services/rssParser';
 import { classifyImage, isNSFWReady } from '@/services/nsfwDetector';
 import { deduplicateByLink } from '@/services/ranking';
 import { sendBreakingNotificationBatch } from '@/services/notifications';
+import { requestBackgroundFetch } from '@/services/backgroundFetch';
 import { SearchBar } from '@/components/common';
 import { DigestCard, FilterModal } from '@/components/digest';
 import { ArticleSkeleton, EmptyState, Button } from '@/components/ui';
@@ -47,6 +49,9 @@ export default function DigestScreen() {
   const [enabledSources, setEnabledSources] = useState<FeedSource[]>([]);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  // Local classifying state - replaces useSyncExternalStore
+  const [classifyingIds, setClassifyingIds] = useState<Set<string>>(new Set());
+  
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appState = useRef(AppState.currentState);
   const listRef = useRef<any>(null);
@@ -54,53 +59,84 @@ export default function DigestScreen() {
   const fetchNewsRef = useRef<(skipCache: boolean) => Promise<void>>(async () => {});
   const markedReadRef = useRef<Set<string>>(new Set());
 
-  // NSFW classification queue
-  const [classifyingIds, setClassifyingIds] = useState<Set<string>>(new Set());
-  const classifyingIdsRef = useRef<Set<string>>(new Set());
-  const classificationQueueRef = useRef<string[]>([]);
+  // NSFW classification queue with batching
+  const classificationQueueRef = useRef<{ id: string; imageUri: string; title: string }[]>([]);
   const isProcessingRef = useRef(false);
+  const pendingUpdatesRef = useRef<Map<string, number>>(new Map());
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const articlesRef = useRef<Article[]>(articles);
   articlesRef.current = articles;
+  const classificationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Flush pending NSFW updates to state + DB in batch
+  const flushPendingUpdates = useCallback(async () => {
+    const updates = [...pendingUpdatesRef.current.entries()];
+    pendingUpdatesRef.current.clear();
+    
+    if (updates.length === 0) return;
+    
+    // Batch update UI state
+    setArticles((prev) =>
+      prev.map((a) => {
+        const status = pendingUpdatesRef.current.get(a.id) ?? updates.find(([id]) => id === a.id)?.[1];
+        return status ? { ...a, nsfw_status: status } : a;
+      })
+    );
+    
+    // Batch update DB
+    await Promise.all(updates.map(([id, status]) => updateArticleNsfwStatus(id, status)));
+    
+    // Remove from classifying set
+    setClassifyingIds((prev) => {
+      const next = new Set(prev);
+      updates.forEach(([id]) => next.delete(id));
+      return next;
+    });
+  }, []);
+
+  const scheduleFlush = useCallback(() => {
+    if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+    flushTimerRef.current = setTimeout(flushPendingUpdates, 2000);
+  }, [flushPendingUpdates]);
 
   const processQueue = useCallback(async () => {
     if (isProcessingRef.current) return;
     isProcessingRef.current = true;
+    
     while (classificationQueueRef.current.length > 0) {
       const batch = classificationQueueRef.current.splice(0, 2);
       await Promise.allSettled(
-        batch.map(async (articleId) => {
+        batch.map(async ({ id, imageUri, title }) => {
           try {
-            const article = articlesRef.current.find((a) => a.id === articleId);
+            const article = articlesRef.current.find((a) => a.id === id);
             if (!article?.image_uri || article.nsfw_status !== 0) return;
-            const result = await classifyImage(article.image_uri, article.title);
+            const result = await classifyImage(imageUri, title);
             if (!result) return;
             const newStatus = result.isNSFW ? 2 : 1;
-            await updateArticleNsfwStatus(articleId, newStatus);
-            setArticles((prev) =>
-              prev.map((a) => (a.id === articleId ? { ...a, nsfw_status: newStatus } : a)),
-            );
+            pendingUpdatesRef.current.set(id, newStatus);
           } finally {
-            classifyingIdsRef.current.delete(articleId);
-            setClassifyingIds(new Set(classifyingIdsRef.current));
+            // Don't remove from classifyingIds here - done in flush
           }
         }),
       );
+      scheduleFlush();
     }
     isProcessingRef.current = false;
-  }, []);
+  }, [scheduleFlush]);
 
   const enqueueClassification = useCallback(
     (article: Article) => {
-      if (classifyingIdsRef.current.has(article.id)) return;
-      classifyingIdsRef.current.add(article.id);
-      setClassifyingIds(new Set(classifyingIdsRef.current));
-      classificationQueueRef.current.push(article.id);
+      if (classifyingIds.has(article.id)) return;
+      setClassifyingIds((prev) => {
+        const next = new Set(prev);
+        next.add(article.id);
+        return next;
+      });
+      classificationQueueRef.current.push({ id: article.id, imageUri: article.image_uri!, title: article.title });
       processQueue();
     },
-    [processQueue],
+    [classifyingIds, processQueue],
   );
-  const enqueueClassificationRef = useRef<(article: Article) => void>(() => {});
-  enqueueClassificationRef.current = enqueueClassification;
 
   const fabScale = useSharedValue(0);
   const listOpacity = useSharedValue(0);
@@ -126,6 +162,7 @@ export default function DigestScreen() {
   }), []);
 
   const onViewableItemsChangedRef = useRef((...args: any[]) => {});
+  
   onViewableItemsChangedRef.current = ({ viewableItems }: { viewableItems: { item: Article }[] }) => {
     // Auto mark read
     if (autoMarkRead) {
@@ -136,22 +173,25 @@ export default function DigestScreen() {
         }
       });
     }
-    // Classify visible + buffer articles
+    // Classify ONLY visible items (no buffer), debounced
     if (!isNSFWReady()) return;
-    const currentArticles = articlesRef.current;
-    const indices = viewableItems
-      .map((vi) => currentArticles.findIndex((a) => a.id === vi.item.id))
-      .filter((i) => i !== -1);
-    if (indices.length === 0) return;
-    const minIdx = Math.max(0, Math.min(...indices) - 4);
-    const maxIdx = Math.min(currentArticles.length - 1, Math.max(...indices) + 4);
-    for (let i = minIdx; i <= maxIdx; i++) {
-      const article = currentArticles[i];
-      if (article?.image_uri && article.nsfw_status === 0) {
-        enqueueClassificationRef.current(article);
-      }
-    }
+    if (classificationDebounceRef.current) clearTimeout(classificationDebounceRef.current);
+    classificationDebounceRef.current = setTimeout(() => {
+      const currentArticles = articlesRef.current;
+      viewableItems.forEach(({ item }) => {
+        const article = currentArticles.find((a) => a.id === item.id);
+        if (article?.image_uri && article.nsfw_status === 0) {
+          enqueueClassification(article);
+        }
+      });
+    }, 300);
   };
+
+  useEffect(() => {
+    return () => {
+      if (classificationDebounceRef.current) clearTimeout(classificationDebounceRef.current);
+    };
+  }, []);
 
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: { item: Article }[] }) => {
     onViewableItemsChangedRef.current({ viewableItems });
@@ -201,28 +241,38 @@ export default function DigestScreen() {
     const loadingToastId = toast.loading('Fetching latest articles...');
     try {
       const rawArticles = await fetchAllFeeds(skipCache);
+      await new Promise(r => setTimeout(r, 0)); // yield
+      
       const unique = deduplicateByLink(rawArticles);
-
+      await new Promise(r => setTimeout(r, 0)); // yield
+      
       const notifiedIds = await getNotifiedArticleIds();
       const breaking = notifyBreaking
         ? unique.filter(a => a.importance_score === 5 && !notifiedIds.has(a.id))
         : [];
 
       const saved = await saveArticles(unique);
-      const pruned = await pruneOldArticles();
-      console.log(`Saved ${saved} new articles, pruned ${pruned} old`);
-
+      await new Promise(r => setTimeout(r, 0)); // yield
+      
       toast.dismiss(loadingToastId);
       toast.success(`${saved} new articles loaded`);
 
-      if (breaking.length > 0) {
-        await sendBreakingNotificationBatch(
-          breaking.map(a => ({ title: a.title, sourceName: a.source_name, id: a.id }))
-        );
-        await markArticlesNotified(breaking.map(a => a.id));
-      }
-
       await loadData(searchQuery);
+
+      // Defer non-critical work until after UI is responsive
+      InteractionManager.runAfterInteractions(() => {
+        pruneOldArticles().then(pruned => {
+          console.log(`Pruned ${pruned} old articles`);
+        });
+        
+        if (breaking.length > 0) {
+          sendBreakingNotificationBatch(
+            breaking.map(a => ({ title: a.title, sourceName: a.source_name, id: a.id }))
+          ).then(() => {
+            markArticlesNotified(breaking.map(a => a.id));
+          });
+        }
+      });
     } catch (error) {
       console.error('Failed to fetch news:', error);
       toast.dismiss(loadingToastId);
@@ -268,11 +318,11 @@ export default function DigestScreen() {
 
   // Auto-fetch every 15 min while foregrounded + on app foreground
   useEffect(() => {
-    const interval = setInterval(() => fetchNews(true), 15 * 60 * 1000);
+    const interval = setInterval(() => requestBackgroundFetch(), 15 * 60 * 1000);
 
     const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       if (appState.current.match(/inactive|background/) && nextState === 'active') {
-        fetchNews(true);
+        requestBackgroundFetch();
       }
       appState.current = nextState;
     });
@@ -281,7 +331,7 @@ export default function DigestScreen() {
       clearInterval(interval);
       subscription.remove();
     };
-  }, [fetchNews]);
+  }, []);
 
   const handleSearchTextChange = useCallback((text: string) => {
     setSearchQuery(text);

@@ -13,6 +13,10 @@
       "resizeMode": "contain",
       "backgroundColor": "#0e0e11"
     },
+    "assetBundlePatterns": [
+      "**/*",
+      "assets/models/nsfw/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.devjournal.app",

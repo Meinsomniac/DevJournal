@@ -17,6 +17,7 @@ interface DatabaseInterface {
   searchArticles(query: string, limit?: number): Promise<Article[]>;
   getArticleById(id: string): Promise<Article | null>;
   getAllArticleIds(): Promise<Set<string>>;
+  filterExistingArticles(articles: ArticleInput[]): Promise<ArticleInput[]>;
   toggleBookmark(id: string): Promise<boolean>;
   markRead(id: string): Promise<void>;
   markAllRead(): Promise<void>;
@@ -491,6 +492,19 @@ class NativeDatabase implements DatabaseInterface {
     return new Set(rows.map(r => r.id));
   }
 
+  async filterExistingArticles(articles: ArticleInput[]): Promise<ArticleInput[]> {
+    if (articles.length === 0) return [];
+    const db = await this.getDb();
+    const ids = articles.map(a => a.id);
+    const placeholders = ids.map(() => '?').join(',');
+    const existing = await db.getAllAsync<{ id: string }>(
+      `SELECT id FROM articles WHERE id IN (${placeholders})`,
+      ids
+    );
+    const existingSet = new Set(existing.map(r => r.id));
+    return articles.filter(a => !existingSet.has(a.id));
+  }
+
   async toggleBookmark(id: string): Promise<boolean> {
     const db = await this.getDb();
     const row = await db.getFirstAsync<{ is_bookmarked: number }>(
@@ -872,6 +886,12 @@ class WebDatabase implements DatabaseInterface {
     return new Set(this.getArticles().map(a => a.id));
   }
 
+  async filterExistingArticles(articles: ArticleInput[]): Promise<ArticleInput[]> {
+    if (articles.length === 0) return [];
+    const existingIds = new Set(this.getArticles().map(a => a.id));
+    return articles.filter(a => !existingIds.has(a.id));
+  }
+
   async toggleBookmark(id: string): Promise<boolean> {
     const articles = this.getArticles();
     const idx = articles.findIndex(a => a.id === id);
@@ -1109,6 +1129,10 @@ export function getArticleById(id: string): Promise<Article | null> {
 
 export function getAllArticleIds(): Promise<Set<string>> {
   return getDb().getAllArticleIds();
+}
+
+export function filterExistingArticles(articles: ArticleInput[]): Promise<ArticleInput[]> {
+  return getDb().filterExistingArticles(articles);
 }
 
 export function toggleBookmark(id: string): Promise<boolean> {

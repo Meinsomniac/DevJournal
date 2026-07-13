@@ -1,14 +1,24 @@
 import * as BackgroundTask from 'expo-background-task';
 import * as TaskManager from 'expo-task-manager';
 import { fetchAllFeeds } from './rssParser';
-import { saveArticles, pruneOldArticles, getNotifiedArticleIds, markArticlesNotified } from './db';
+import { saveArticles, pruneOldArticles, getNotifiedArticleIds, markArticlesNotified, getSetting, setSetting } from './db';
 import { deduplicateByLink } from './ranking';
 import { sendBreakingNotificationBatch } from './notifications';
 
 const BACKGROUND_FETCH_TASK = 'devjournal-background-fetch';
+const NEEDS_FETCH_KEY = 'needsBackgroundFetch';
 
 TaskManager.defineTask(BACKGROUND_FETCH_TASK, async () => {
   console.log('[BackgroundFetch] Task started');
+
+  // Check if UI requested a fetch
+  const needsFetch = await getSetting<boolean>(NEEDS_FETCH_KEY, false);
+  if (!needsFetch) {
+    return BackgroundTask.BackgroundTaskResult.Success;
+  }
+
+  // Reset the flag
+  await setSetting(NEEDS_FETCH_KEY, false);
 
   try {
     const articles = await fetchAllFeeds(true);
@@ -69,4 +79,8 @@ export async function unregisterBackgroundFetch(): Promise<void> {
 
 export function isBackgroundFetchRegistered(): Promise<boolean> {
   return TaskManager.isTaskRegisteredAsync(BACKGROUND_FETCH_TASK);
+}
+
+export async function requestBackgroundFetch(): Promise<void> {
+  await setSetting(NEEDS_FETCH_KEY, true);
 }

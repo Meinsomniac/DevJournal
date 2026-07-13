@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, Text, Pressable, ActivityIndicator, Platform, Image } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
+import { View, StyleSheet, ScrollView, Text, Pressable, ActivityIndicator, Platform, Image, Animated as RNAnimated } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
@@ -17,6 +17,7 @@ import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { Article } from '@/types';
 import { getArticleById, toggleBookmark, markRead } from '@/services/db';
+import { getClassifyingIds, subscribe as subscribeClassificationIds } from '@/services/classificationStore';
 import { formatDateTime } from '@/utils/date';
 import { ImportanceStars, SourceIcon, BrokenImageIcon } from '@/components/ui';
 import { Bookmark, ExternalLink } from 'lucide-react-native';
@@ -35,6 +36,38 @@ export default function ArticleScreen() {
   const [article, setArticle] = useState<Article | null>(null);
   const [loading, setLoading] = useState(true);
   const [imgError, setImgError] = useState(false);
+
+  const classifyingIds = useSyncExternalStore(subscribeClassificationIds, getClassifyingIds);
+  const isClassifying = classifyingIds.has(id);
+
+  const wasClassifying = useRef(false);
+
+  useEffect(() => {
+    const currentlyClassifying = classifyingIds.has(id);
+    if (wasClassifying.current && !currentlyClassifying) {
+      getArticleById(id).then((fresh) => {
+        if (fresh) setArticle(fresh);
+      });
+    }
+    wasClassifying.current = currentlyClassifying;
+  }, [classifyingIds, id]);
+
+  const pulseAnim = useRef(new RNAnimated.Value(1)).current;
+
+  useEffect(() => {
+    if (isClassifying) {
+      const animation = RNAnimated.loop(
+        RNAnimated.sequence([
+          RNAnimated.timing(pulseAnim, { toValue: 0.1, duration: 700, useNativeDriver: true }),
+          RNAnimated.timing(pulseAnim, { toValue: 1, duration: 700, useNativeDriver: true }),
+        ]),
+      );
+      animation.start();
+      return () => animation.stop();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [isClassifying, pulseAnim]);
 
   useEffect(() => {
     setImgError(false);
@@ -173,13 +206,17 @@ export default function ArticleScreen() {
           </View>
         </View>
 
-        {article.image_uri && !imgError ? (
-          <Image
-            source={{ uri: article.image_uri }}
-            style={[styles.articleImage, { backgroundColor: colors.borderLight }]}
-            resizeMode="cover"
-            onError={() => setImgError(true)}
-          />
+        {article.image_uri && !imgError && article.nsfw_status !== 2 ? (
+          isClassifying ? (
+            <RNAnimated.View style={[styles.articleImage, { backgroundColor: colors.borderLight, opacity: pulseAnim }]} />
+          ) : (
+            <Image
+              source={{ uri: article.image_uri }}
+              style={[styles.articleImage, { backgroundColor: colors.borderLight }]}
+              resizeMode="cover"
+              onError={() => setImgError(true)}
+            />
+          )
         ) : (
           <View style={[styles.imagePlaceholder, { backgroundColor: colors.borderLight }]}>
             <BrokenImageIcon size={48} />
