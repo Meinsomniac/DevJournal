@@ -20,7 +20,7 @@ import { Typography } from '@/constants/Typography';
 import { Article, FeedSource, FilterState, DEFAULT_FILTER } from '@/types';
 import { getDigestFeed, toggleBookmark, saveArticles, getFilteredArticles, getEnabledFeedSources, getNotifiedArticleIds, markArticlesNotified, getArticleCount, markRead, getSetting, setSetting, pruneOldArticles, updateArticleNsfwStatus } from '@/services/db';
 import { fetchAllFeeds } from '@/services/rssParser';
-import { classifyImage, isNSFWReady } from '@/services/nsfwDetector';
+import { classifyImage, isNSFWReady, initNSFWModel } from '@/services/nsfwDetector';
 import { deduplicateByLink } from '@/services/ranking';
 import { sendBreakingNotificationBatch } from '@/services/notifications';
 import { requestBackgroundFetch } from '@/services/backgroundFetch';
@@ -49,6 +49,7 @@ export default function DigestScreen() {
   const [enabledSources, setEnabledSources] = useState<FeedSource[]>([]);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  const [modelReady, setModelReady] = useState(false);
   // Local classifying state - replaces useSyncExternalStore
   const [classifyingIds, setClassifyingIds] = useState<Set<string>>(new Set());
   
@@ -68,30 +69,16 @@ export default function DigestScreen() {
   articlesRef.current = articles;
   const classificationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Flush pending NSFW updates to state + DB in batch
+  // Flush pending NSFW updates to the DB in a batch. UI state is updated
+  // per-article as soon as its classification finishes (see processQueue),
+  // so this only persists statuses to disk.
   const flushPendingUpdates = useCallback(async () => {
     const updates = [...pendingUpdatesRef.current.entries()];
     pendingUpdatesRef.current.clear();
-    
+
     if (updates.length === 0) return;
-    
-    // Batch update UI state
-    setArticles((prev) =>
-      prev.map((a) => {
-        const status = pendingUpdatesRef.current.get(a.id) ?? updates.find(([id]) => id === a.id)?.[1];
-        return status ? { ...a, nsfw_status: status } : a;
-      })
-    );
-    
-    // Batch update DB
+
     await Promise.all(updates.map(([id, status]) => updateArticleNsfwStatus(id, status)));
-    
-    // Remove from classifying set
-    setClassifyingIds((prev) => {
-      const next = new Set(prev);
-      updates.forEach(([id]) => next.delete(id));
-      return next;
-    });
   }, []);
 
   const scheduleFlush = useCallback(() => {
@@ -102,24 +89,43 @@ export default function DigestScreen() {
   const processQueue = useCallback(async () => {
     if (isProcessingRef.current) return;
     isProcessingRef.current = true;
-    
+
     while (classificationQueueRef.current.length > 0) {
       const batch = classificationQueueRef.current.splice(0, 2);
       await Promise.allSettled(
         batch.map(async ({ id, imageUri, title }) => {
+          const article = articlesRef.current.find((a) => a.id === id);
+          if (!article?.image_uri || article.nsfw_status !== 0) return;
+
+          let status: number;
           try {
-            const article = articlesRef.current.find((a) => a.id === id);
-            if (!article?.image_uri || article.nsfw_status !== 0) return;
             const result = await classifyImage(imageUri, title);
-            if (!result) return;
-            const newStatus = result.isNSFW ? 2 : 1;
-            pendingUpdatesRef.current.set(id, newStatus);
-          } finally {
-            // Don't remove from classifyingIds here - done in flush
+            status = result ? (result.isNSFW ? 2 : 1) : 1;
+          } catch {
+            // Decode / network failure -> show the image normally instead of
+            // the broken icon, and stop retrying.
+            status = 1;
           }
+
+          // Persist for batched DB write.
+          pendingUpdatesRef.current.set(id, status);
+
+          // Update UI immediately so the image shows as soon as its own
+          // classification finishes (no waiting for the batch flush).
+          setArticles((prev) =>
+            prev.map((a) => (a.id === id ? { ...a, nsfw_status: status } : a)),
+          );
+          setClassifyingIds((prev) => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
         }),
       );
       scheduleFlush();
+      // Yield to the event loop so navigation taps / transitions are processed
+      // while the classification queue is draining.
+      await new Promise((resolve) => setTimeout(resolve, 0));
     }
     isProcessingRef.current = false;
   }, [scheduleFlush]);
@@ -163,7 +169,7 @@ export default function DigestScreen() {
 
   const onViewableItemsChangedRef = useRef((...args: any[]) => {});
   
-  onViewableItemsChangedRef.current = ({ viewableItems }: { viewableItems: { item: Article }[] }) => {
+  onViewableItemsChangedRef.current = ({ viewableItems }: { viewableItems: { item: Article; index?: number }[] }) => {
     // Auto mark read
     if (autoMarkRead) {
       viewableItems.forEach(({ item }) => {
@@ -173,17 +179,30 @@ export default function DigestScreen() {
         }
       });
     }
-    // Classify ONLY visible items (no buffer), debounced
+    // Classify visible items plus a 2 up / 2 down buffer, debounced
     if (!isNSFWReady()) return;
     if (classificationDebounceRef.current) clearTimeout(classificationDebounceRef.current);
     classificationDebounceRef.current = setTimeout(() => {
       const currentArticles = articlesRef.current;
-      viewableItems.forEach(({ item }) => {
-        const article = currentArticles.find((a) => a.id === item.id);
+      let minIdx = Infinity;
+      let maxIdx = -Infinity;
+      viewableItems.forEach(({ index }) => {
+        if (typeof index === 'number') {
+          minIdx = Math.min(minIdx, index);
+          maxIdx = Math.max(maxIdx, index);
+        }
+      });
+      const from = minIdx === Infinity ? 0 : Math.max(0, minIdx - 2);
+      const to =
+        maxIdx === -1
+          ? currentArticles.length - 1
+          : Math.min(currentArticles.length - 1, maxIdx + 2);
+      for (let i = from; i <= to; i++) {
+        const article = currentArticles[i];
         if (article?.image_uri && article.nsfw_status === 0) {
           enqueueClassification(article);
         }
-      });
+      }
     }, 300);
   };
 
@@ -295,6 +314,10 @@ export default function DigestScreen() {
   useEffect(() => {
     const init = async () => {
       await loadData(searchQuery);
+      // Wait for the NSFW model to finish loading (success OR failure)
+      // before showing the list, so visible images get classified.
+      await initNSFWModel();
+      setModelReady(true);
       setInitialLoadComplete(true);
       const [count, initialFetchDone] = await Promise.all([
         getArticleCount(),
@@ -309,6 +332,21 @@ export default function DigestScreen() {
     getEnabledFeedSources().then(setEnabledSources);
     return () => clearTimeout(id);
   }, [dataVersion, loadData, searchQuery]);
+
+  // Ensure initially visible articles are classified once the list is shown,
+  // even if onViewableItemsChanged doesn't fire on first mount.
+  useEffect(() => {
+    if (!initialLoadComplete || !isNSFWReady()) return;
+    const currentArticles = articlesRef.current;
+    const initialCount = Math.min(currentArticles.length, 10);
+    for (let i = 0; i < initialCount; i++) {
+      const article = currentArticles[i];
+      if (article?.image_uri && article.nsfw_status === 0) {
+        enqueueClassification(article);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialLoadComplete]);
 
   useEffect(() => {
     return () => {
@@ -414,7 +452,7 @@ export default function DigestScreen() {
     />
   ), [compactMode, handleBookmark, classifyingIds]);
 
-  if (loading && articles.length === 0) {
+  if ((loading || !modelReady) && articles.length === 0) {
     return (
       <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
         <View style={[styles.content, { paddingTop: insets.top + Spacing.lg, paddingBottom: insets.bottom + Spacing.xxl }]}>
