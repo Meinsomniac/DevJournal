@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,13 +8,14 @@ import {
   Switch,
   Linking,
 } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '@/context/AppContext';
 import { useHaptics } from '@/hooks/useHaptics';
 import { toast } from 'sonner-native';
 import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
-import { clearCache, clearAllData, getStorageStats, StorageStats } from '@/services/db';
+import { clearAllData, getStorageStats, StorageStats } from '@/services/db';
 import { formatDate } from '@/utils/date';
 import { Header } from '@/components/common/Header';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
@@ -46,37 +47,28 @@ export default function SettingsScreen() {
     bumpDataVersion,
   } = useApp();
 
-  const { hapticLight, hapticMedium, hapticHeavy, hapticSuccess } = useHaptics();
+  const { hapticLight, hapticHeavy, hapticSuccess } = useHaptics();
   const insets = useSafeAreaInsets();
 
   const [storageStats, setStorageStats] = useState<StorageStats>({ count: 0, oldestDate: null, storageMb: 0 });
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
-  useEffect(() => {
-    const loadStats = async () => {
-      try {
-        const stats = await getStorageStats();
-        setStorageStats(stats);
-      } catch (error) {
-        console.error('Failed to load storage stats:', error);
-      }
-    };
-    loadStats();
-  }, []);
-
-  const handleClearCache = useCallback(async () => {
-    hapticMedium();
+  const loadStats = useCallback(async () => {
     try {
-      await clearCache();
       const stats = await getStorageStats();
       setStorageStats(stats);
-      bumpDataVersion();
-      toast.success('Cache cleared');
     } catch (error) {
-      console.error('Failed to clear cache:', error);
-      toast.error('Failed to clear cache');
+      console.error('Failed to load storage stats:', error);
     }
-  }, [bumpDataVersion, hapticMedium]);
+  }, []);
+
+  // Reload stats every time the tab is focused, since article fetches (and
+  // clearing data) happen elsewhere and tab screens stay mounted.
+  useFocusEffect(
+    useCallback(() => {
+      loadStats();
+    }, [loadStats])
+  );
 
   const handleClearAll = useCallback(() => {
     hapticHeavy();
@@ -229,13 +221,6 @@ export default function SettingsScreen() {
               </Text>
             )}
           </View>
-          {renderSetting(
-            'Clear Cache',
-            'Remove all non-bookmarked articles',
-            <Pressable onPress={handleClearCache} style={styles.iconButton}>
-              <Trash2 size={22} color={colors.error} />
-            </Pressable>
-          )}
           {renderSetting(
             'Clear All Data',
             'Delete all articles and bookmarks',

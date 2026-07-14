@@ -53,10 +53,9 @@ function ThemedLayout() {
       </Stack>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <Toaster
-        position='bottom-center'
+        position='top-center'
         theme={isDark ? 'dark' : 'light'}
         duration={2000}
-        swipeToDismissDirection='left'
         icons={{ loading: <ActivityIndicator color={colors.textSecondary} /> }}
         toastOptions={{
           style: { backgroundColor: toastBg },

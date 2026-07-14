@@ -15,7 +15,7 @@ const parser = new XMLParser({
   htmlEntities: false,
 });
 
-const CONCURRENCY_LIMIT = 3;
+const CONCURRENCY_LIMIT = 2;
 const YIELD_INTERVAL = 50;
 
 async function limitedConcurrency<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
@@ -163,7 +163,9 @@ async function fetchArticleContent(url: string): Promise<{ summary?: string; ima
 
     if (!response.ok) return undefined;
 
-    const html = await response.text();
+    // Truncate before parsing — og:image/meta tags sit near the top, so this
+    // drastically cuts cheerio's synchronous parse cost (keeps the UI thread free).
+    const html = (await response.text()).slice(0, 200000);
     const $ = load(html);
 
     // Extract image from meta tags or first img
@@ -270,7 +272,8 @@ export async function fetchAndParseFeed(
   sourceName: string,
   iconUri?: string,
   skipCache: boolean = false,
-  keywords?: string[]
+  keywords?: string[],
+  enrich: boolean = true
 ): Promise<ArticleInput[]> {
   try {
     const now = Date.now();
@@ -446,24 +449,28 @@ export async function fetchAndParseFeed(
     // Batch check existing articles - single DB query
     const newArticles = await filterExistingArticles(recentArticles);
 
-    // Fetch missing summaries and images from article pages with concurrency limit
-    const contentFetchTasks = newArticles.map((article) => async () => {
-      const needsSummary = !article.summary || isLowQualitySummary(article.summary, article.title);
-      const needsImage = !article.image_uri;
-      if (!needsSummary && !needsImage) return;
+    // Fetch missing summaries and images from article pages with concurrency limit.
+    // Skipped when `enrich` is false so the interactive fetch returns fast and the
+    // heavy HTML parsing runs in the background instead of blocking the UI thread.
+    if (enrich) {
+      const contentFetchTasks = newArticles.map((article) => async () => {
+        const needsSummary = !article.summary || isLowQualitySummary(article.summary, article.title);
+        const needsImage = !article.image_uri;
+        if (!needsSummary && !needsImage) return;
 
-      const result = await fetchArticleContent(article.link);
-      if (!result) return;
+        const result = await fetchArticleContent(article.link);
+        if (!result) return;
 
-      if (needsSummary && result.summary) {
-        article.summary = result.summary;
-      }
-      if (needsImage && result.image) {
-        article.image_uri = result.image;
-      }
-    });
+        if (needsSummary && result.summary) {
+          article.summary = result.summary;
+        }
+        if (needsImage && result.image) {
+          article.image_uri = result.image;
+        }
+      });
 
-    await limitedConcurrency(contentFetchTasks, CONCURRENCY_LIMIT);
+      await limitedConcurrency(contentFetchTasks, CONCURRENCY_LIMIT);
+    }
 
     updateFeedFrequency(url);
     return newArticles;
@@ -473,7 +480,7 @@ export async function fetchAndParseFeed(
   }
 }
 
-export async function fetchAllFeeds(skipCache: boolean = false): Promise<ArticleInput[]> {
+export async function fetchAllFeeds(skipCache: boolean = false, enrich: boolean = true): Promise<ArticleInput[]> {
   const customFeeds = await getCustomFeeds();
   const enabledIds = await getEnabledFeeds();
   const disabledIds = await getDisabledFeeds();
@@ -487,7 +494,7 @@ export async function fetchAllFeeds(skipCache: boolean = false): Promise<Article
 
   const results = await Promise.allSettled(
     activeSources.map(source =>
-      fetchAndParseFeed(source.rss_url, source.name, source.icon, skipCache)
+      fetchAndParseFeed(source.rss_url, source.name, source.icon, skipCache, undefined, enrich)
     )
   );
 
@@ -506,4 +513,44 @@ export async function fetchAllFeeds(skipCache: boolean = false): Promise<Article
   console.log(`[RSS] Fetched ${allArticles.length} articles from ${activeSources.length - errors}/${activeSources.length} feeds`);
 
   return allArticles;
+}
+
+/**
+ * Enrich already-saved articles with summaries/images fetched from their pages.
+ * Runs the per-article HTML parsing in the background, a few at a time, yielding
+ * to the event loop between batches so the UI thread stays responsive (navigation
+ * taps keep working during the fetch). Mutates and returns the articles that were
+ * enriched so the caller can persist the changes.
+ */
+export async function enrichArticles(
+  articles: ArticleInput[],
+  onProgress?: (done: number, total: number) => void
+): Promise<ArticleInput[]> {
+  const toEnrich = articles.filter((a) =>
+    (!a.summary || isLowQualitySummary(a.summary, a.title)) || !a.image_uri
+  );
+
+  const total = toEnrich.length;
+  let done = 0;
+  onProgress?.(0, total);
+
+  const BATCH_SIZE = 2;
+  for (let i = 0; i < toEnrich.length; i += BATCH_SIZE) {
+    const batch = toEnrich.slice(i, i + BATCH_SIZE);
+    await Promise.all(batch.map(async (article) => {
+      const result = await fetchArticleContent(article.link);
+      if (!result) return;
+      if ((!article.summary || isLowQualitySummary(article.summary, article.title)) && result.summary) {
+        article.summary = result.summary;
+      }
+      if (!article.image_uri && result.image) {
+        article.image_uri = result.image;
+      }
+      done++;
+    }));
+    onProgress?.(done, total);
+    // Yield so React Native can process queued touch events between batches.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  return toEnrich;
 }

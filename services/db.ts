@@ -23,8 +23,10 @@ interface DatabaseInterface {
   markAllRead(): Promise<void>;
   deleteBookmark(id: string): Promise<void>;
   updateArticleNsfwStatus(id: string, status: number): Promise<void>;
+  updateArticleContent(id: string, summary: string, imageUri: string | null): Promise<void>;
   getUnreadCount(): Promise<number>;
   getArticleCount(): Promise<number>;
+  getArticlesNeedingEnrichment(): Promise<ArticleInput[]>;
   getStorageStats(): Promise<StorageStats>;
   getSetting<T>(key: string, defaultValue: T): Promise<T>;
   setSetting<T>(key: string, value: T): Promise<void>;
@@ -35,7 +37,6 @@ interface DatabaseInterface {
   removeCustomFeed(id: string): Promise<void>;
   getCustomFeeds(): Promise<CustomFeed[]>;
   clearAllData(): Promise<void>;
-  clearCache(): Promise<void>;
   getArticlesBySource(sourceName: string, limit?: number): Promise<Article[]>;
   searchArticlesBySource(query: string, sourceName: string, limit?: number): Promise<Article[]>;
   getEnabledFeedSources(): Promise<FeedSource[]>;
@@ -530,6 +531,11 @@ class NativeDatabase implements DatabaseInterface {
     await db.runAsync('UPDATE articles SET nsfw_status = ? WHERE id = ?', [status, id]);
   }
 
+  async updateArticleContent(id: string, summary: string, imageUri: string | null): Promise<void> {
+    const db = await this.getDb();
+    await db.runAsync('UPDATE articles SET summary = ?, image_uri = ? WHERE id = ?', [summary, imageUri, id]);
+  }
+
   async markAllRead(): Promise<void> {
     const db = await this.getDb();
     await db.runAsync('UPDATE articles SET is_read = 1');
@@ -554,6 +560,30 @@ class NativeDatabase implements DatabaseInterface {
       'SELECT COUNT(*) as count FROM articles'
     );
     return row?.count ?? 0;
+  }
+
+  async getArticlesNeedingEnrichment(): Promise<ArticleInput[]> {
+    const db = await this.getDb();
+    const rows = await db.getAllAsync<{
+      id: string; title: string; link: string; source_name: string;
+      source_icon_uri: string | null; pub_date: number; fetched_at: number;
+      summary: string | null; image_uri: string | null; importance_score: number;
+    }>(
+      `SELECT id, title, link, source_name, source_icon_uri, pub_date, fetched_at, summary, image_uri, importance_score
+       FROM articles WHERE image_uri IS NULL OR summary IS NULL OR summary = ''`
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      link: r.link,
+      source_name: r.source_name,
+      source_icon_uri: r.source_icon_uri ?? undefined,
+      pub_date: r.pub_date,
+      fetched_at: r.fetched_at,
+      summary: r.summary ?? '',
+      image_uri: r.image_uri ?? undefined,
+      importance_score: r.importance_score,
+    }));
   }
 
   async getStorageStats(): Promise<StorageStats> {
@@ -630,6 +660,16 @@ class NativeDatabase implements DatabaseInterface {
 
   async clearAllData(): Promise<void> {
     const db = await this.getDb();
+    // Drop any legacy FTS-sync triggers left over from older schemas. These
+    // reference articles_fts, and firing them after the table is dropped would
+    // throw "no such table: main.articles_fts". The app now syncs FTS manually,
+    // so removing them is both safe and necessary.
+    const triggers = await db.getAllAsync<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'articles'"
+    );
+    for (const { name } of triggers) {
+      await db.runAsync(`DROP TRIGGER IF EXISTS "${name}"`);
+    }
     await db.runAsync('DROP TABLE IF EXISTS articles_fts');
     await db.runAsync('DELETE FROM articles');
     await db.runAsync(
@@ -640,14 +680,6 @@ class NativeDatabase implements DatabaseInterface {
         tokenize='porter unicode61'
       )`
     );
-  }
-
-  async clearCache(): Promise<void> {
-    const db = await this.getDb();
-    await db.runAsync(
-      "INSERT INTO articles_fts(rowid, title, summary) SELECT rowid, NULL, NULL FROM articles WHERE is_bookmarked = 0"
-    );
-    await db.runAsync('DELETE FROM articles WHERE is_bookmarked = 0');
   }
 
   async retainOnlyFeeds(keepIds: Set<string>): Promise<void> {
@@ -911,6 +943,16 @@ class WebDatabase implements DatabaseInterface {
     // no-op on web — NSFW classification not supported
   }
 
+  async updateArticleContent(id: string, summary: string, imageUri: string | null): Promise<void> {
+    const articles = this.getArticles();
+    const a = articles.find(x => x.id === id);
+    if (a) {
+      a.summary = summary;
+      a.image_uri = imageUri ?? undefined;
+      this.saveArticlesToStorage(articles);
+    }
+  }
+
   async markAllRead(): Promise<void> {
     const articles = this.getArticles();
     articles.forEach(a => a.is_read = true);
@@ -929,6 +971,23 @@ class WebDatabase implements DatabaseInterface {
 
   async getArticleCount(): Promise<number> {
     return this.getArticles().length;
+  }
+
+  async getArticlesNeedingEnrichment(): Promise<ArticleInput[]> {
+    return this.getArticles()
+      .filter((a) => !a.image_uri || !a.summary)
+      .map((a) => ({
+        id: a.id,
+        title: a.title,
+        link: a.link,
+        source_name: a.source_name,
+        source_icon_uri: a.source_icon_uri,
+        pub_date: a.pub_date,
+        fetched_at: a.fetched_at,
+        summary: a.summary,
+        image_uri: a.image_uri,
+        importance_score: a.importance_score,
+      }));
   }
 
   async getStorageStats(): Promise<StorageStats> {
@@ -996,11 +1055,6 @@ class WebDatabase implements DatabaseInterface {
 
   async clearAllData(): Promise<void> {
     localStorage.removeItem(this.STORAGE_KEY);
-  }
-
-  async clearCache(): Promise<void> {
-    const articles = this.getArticles().filter(a => a.is_bookmarked);
-    this.saveArticlesToStorage(articles);
   }
 
   async retainOnlyFeeds(keepIds: Set<string>): Promise<void> {
@@ -1147,6 +1201,10 @@ export function updateArticleNsfwStatus(id: string, status: number): Promise<voi
   return getDb().updateArticleNsfwStatus(id, status);
 }
 
+export function updateArticleContent(id: string, summary: string, imageUri: string | null): Promise<void> {
+  return getDb().updateArticleContent(id, summary, imageUri);
+}
+
 export function markAllRead(): Promise<void> {
   return getDb().markAllRead();
 }
@@ -1161,6 +1219,10 @@ export function getUnreadCount(): Promise<number> {
 
 export function getArticleCount(): Promise<number> {
   return getDb().getArticleCount();
+}
+
+export function getArticlesNeedingEnrichment(): Promise<ArticleInput[]> {
+  return getDb().getArticlesNeedingEnrichment();
 }
 
 export function getStorageStats(): Promise<StorageStats> {
@@ -1201,10 +1263,6 @@ export function getCustomFeeds(): Promise<CustomFeed[]> {
 
 export function clearAllData(): Promise<void> {
   return getDb().clearAllData();
-}
-
-export function clearCache(): Promise<void> {
-  return getDb().clearCache();
 }
 
 export function getNotifiedArticleIds(): Promise<Set<string>> {

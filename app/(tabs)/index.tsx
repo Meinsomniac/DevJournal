@@ -2,8 +2,8 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import {
   View, Text, StyleSheet, RefreshControl, ActivityIndicator,
   AppState, AppStateStatus, Animated, Pressable,
-  InteractionManager,
 } from 'react-native';
+import { runAfterInteractions } from '@/utils/interaction';
 import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { toast } from 'sonner-native';
@@ -18,8 +18,8 @@ import { useHaptics } from '@/hooks/useHaptics';
 import { Spacing } from '@/constants/Spacing';
 import { Typography } from '@/constants/Typography';
 import { Article, FeedSource, FilterState, DEFAULT_FILTER } from '@/types';
-import { getDigestFeed, toggleBookmark, saveArticles, getFilteredArticles, getEnabledFeedSources, getNotifiedArticleIds, markArticlesNotified, getArticleCount, markRead, getSetting, setSetting, pruneOldArticles, updateArticleNsfwStatus } from '@/services/db';
-import { fetchAllFeeds } from '@/services/rssParser';
+import { getDigestFeed, toggleBookmark, saveArticles, getFilteredArticles, getEnabledFeedSources, getNotifiedArticleIds, markArticlesNotified, getArticleCount, markRead, getSetting, setSetting, pruneOldArticles, updateArticleNsfwStatus, updateArticleContent, getArticlesNeedingEnrichment } from '@/services/db';
+import { fetchAllFeeds, enrichArticles } from '@/services/rssParser';
 import { classifyImage, isNSFWReady, initNSFWModel } from '@/services/nsfwDetector';
 import { deduplicateByLink } from '@/services/ranking';
 import { sendBreakingNotificationBatch } from '@/services/notifications';
@@ -49,7 +49,6 @@ export default function DigestScreen() {
   const [enabledSources, setEnabledSources] = useState<FeedSource[]>([]);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
-  const [modelReady, setModelReady] = useState(false);
   // Local classifying state - replaces useSyncExternalStore
   const [classifyingIds, setClassifyingIds] = useState<Set<string>>(new Set());
   
@@ -58,6 +57,7 @@ export default function DigestScreen() {
   const listRef = useRef<any>(null);
   const scrollY = useMemo(() => new Animated.Value(0), []);
   const fetchNewsRef = useRef<(skipCache: boolean) => Promise<void>>(async () => {});
+  const enrichPromiseRef = useRef<PromiseLike<void> | null>(null);
   const markedReadRef = useRef<Set<string>>(new Set());
 
   // NSFW classification queue with batching
@@ -259,7 +259,7 @@ export default function DigestScreen() {
     setFetching(true);
     const loadingToastId = toast.loading('Fetching latest articles...');
     try {
-      const rawArticles = await fetchAllFeeds(skipCache);
+      const rawArticles = await fetchAllFeeds(skipCache, false);
       await new Promise(r => setTimeout(r, 0)); // yield
       
       const unique = deduplicateByLink(rawArticles);
@@ -272,31 +272,42 @@ export default function DigestScreen() {
 
       const saved = await saveArticles(unique);
       await new Promise(r => setTimeout(r, 0)); // yield
-      
-      toast.dismiss(loadingToastId);
-      toast.success(`${saved} new articles loaded`);
 
-      await loadData(searchQuery);
+      // Keep the heavy content enrichment + list reveal off the critical path so
+      // the UI thread stays free (navigation works during the fetch). The list is
+      // only revealed once enrichment finishes, avoiding a flash of un-enriched
+      // articles. Stored on a ref so the first-launch flow can await it.
+      enrichPromiseRef.current = runAfterInteractions(async () => {
+        try {
+          const enriched = await enrichArticles(unique, (done, total) =>
+            toast.loading(`Enriching articles... ${done}/${total}`, { id: loadingToastId, duration: Infinity })
+          );
+          for (const a of enriched) {
+            await updateArticleContent(a.id, a.summary, a.image_uri ?? null);
+          }
+          await loadData(searchQuery);
+          await pruneOldArticles();
 
-      // Defer non-critical work until after UI is responsive
-      InteractionManager.runAfterInteractions(() => {
-        pruneOldArticles().then(pruned => {
-          console.log(`Pruned ${pruned} old articles`);
-        });
-        
-        if (breaking.length > 0) {
-          sendBreakingNotificationBatch(
-            breaking.map(a => ({ title: a.title, sourceName: a.source_name, id: a.id }))
-          ).then(() => {
-            markArticlesNotified(breaking.map(a => a.id));
-          });
+          if (breaking.length > 0) {
+            await sendBreakingNotificationBatch(
+              breaking.map(a => ({ title: a.title, sourceName: a.source_name, id: a.id }))
+            );
+            await markArticlesNotified(breaking.map(a => a.id));
+          }
+        } catch (err) {
+          console.error('Content enrichment failed:', err);
+        } finally {
+          // Clear the button spinner only once enrichment + list reveal finish,
+          // so it keeps showing "Fetching…" while background work is in progress.
+          setFetching(false);
+          toast.dismiss(loadingToastId);
+          toast.success(`${saved} new articles loaded`);
         }
       });
     } catch (error) {
       console.error('Failed to fetch news:', error);
       toast.dismiss(loadingToastId);
       toast.error('Could not fetch feeds. Pull down to try again.');
-    } finally {
       setFetching(false);
     }
   }, [fetching, loadData, searchQuery, notifyBreaking]);
@@ -313,20 +324,52 @@ export default function DigestScreen() {
 
   useEffect(() => {
     const init = async () => {
-      await loadData(searchQuery);
-      // Wait for the NSFW model to finish loading (success OR failure)
-      // before showing the list, so visible images get classified.
+      // Wait for the NSFW model before showing anything, so visible images get
+      // classified once the list is revealed.
       await initNSFWModel();
-      setModelReady(true);
-      setInitialLoadComplete(true);
       const [count, initialFetchDone] = await Promise.all([
         getArticleCount(),
         getSetting<boolean>('initialFetchDone', false),
       ]);
       if (count === 0 && !initialFetchDone) {
+        // Fast fetch + save; enrichment is deferred. Wait for it (and the list
+        // reveal) to finish so the skeleton persists until articles are ready.
         await fetchNewsRef.current(false);
+        await enrichPromiseRef.current;
         await setSetting('initialFetchDone', true);
+        setInitialLoadComplete(true);
+        return;
       }
+
+      const leftovers = await getArticlesNeedingEnrichment();
+      if (leftovers.length === 0) {
+        await loadData(searchQuery);
+        setInitialLoadComplete(true);
+        return;
+      }
+
+      // Leftovers exist (e.g. the app was closed mid-enrichment). Enrich in the
+      // background — the same batch-yielding, responsive work already proven
+      // non-freezing — and only reveal the list once it's complete, so rows
+      // don't update mid-scroll (flicker).
+      const enrichToastId = toast.loading('Enriching articles... 0/0', { duration: Infinity });
+      runAfterInteractions(async () => {
+        try {
+          const enriched = await enrichArticles(leftovers, (done, total) =>
+            toast.loading(`Enriching articles... ${done}/${total}`, { id: enrichToastId })
+          );
+          for (const a of enriched) {
+            await updateArticleContent(a.id, a.summary, a.image_uri ?? null);
+          }
+        } catch (e) {
+          console.error('Leftover enrichment failed:', e);
+        } finally {
+          await loadData(searchQuery);
+          setInitialLoadComplete(true);
+          toast.dismiss(enrichToastId);
+          toast.success('Articles ready');
+        }
+      });
     };
     const id = setTimeout(init, 0);
     getEnabledFeedSources().then(setEnabledSources);
@@ -452,7 +495,7 @@ export default function DigestScreen() {
     />
   ), [compactMode, handleBookmark, classifyingIds]);
 
-  if ((loading || !modelReady) && articles.length === 0) {
+  if (!initialLoadComplete) {
     return (
       <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
         <View style={[styles.content, { paddingTop: insets.top + Spacing.lg, paddingBottom: insets.bottom + Spacing.xxl }]}>
