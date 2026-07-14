@@ -7,7 +7,7 @@ export interface ProhibitedCategory {
 export const PROHIBITED_CATEGORIES: ProhibitedCategory[] = [
   {
     name: 'riba',
-    label: 'Riba (Interest/Usury)',
+    label: 'Interest & Usury',
     keywords: [
       'interest rate', 'usury', 'riba', 'interest loan', 'payday loan',
       'interest-bearing', 'predatory lending',
@@ -16,7 +16,7 @@ export const PROHIBITED_CATEGORIES: ProhibitedCategory[] = [
   },
   {
     name: 'gambling',
-    label: 'Gambling (Maysir/Qimar)',
+    label: 'Gambling',
     keywords: [
       'casino', 'poker', 'blackjack', 'roulette', 'slot machine',
       'betting', 'sports betting', 'online gambling', 'lottery',
@@ -33,7 +33,7 @@ export const PROHIBITED_CATEGORIES: ProhibitedCategory[] = [
   },
   {
     name: 'intoxicants',
-    label: 'Intoxicants (Khamr)',
+    label: 'Alcohol & Intoxicants',
     keywords: [
       'alcohol delivery', 'liquor store', 'wine club', 'beer delivery',
       'distillery', 'brewery', 'spirits', 'vodka', 'whiskey',
@@ -41,14 +41,14 @@ export const PROHIBITED_CATEGORIES: ProhibitedCategory[] = [
   },
   {
     name: 'haram_food',
-    label: 'Non-Halal Food',
+    label: 'Restricted Foods',
     keywords: [
       'pork', 'bacon', 'ham', 'prosciutto',
     ],
   },
   {
     name: 'superstition',
-    label: 'Superstition & Divination (Kahanah)',
+    label: 'Superstition & Divination',
     keywords: [
       'astrology', 'horoscope', 'fortune teller', 'tarot',
       'palm reading', 'psychic reading', 'black magic',

@@ -27,6 +27,7 @@ interface DatabaseInterface {
   getUnreadCount(): Promise<number>;
   getArticleCount(): Promise<number>;
   getArticlesNeedingEnrichment(): Promise<ArticleInput[]>;
+  markArticlesEnrichmentAttempted(ids: string[]): Promise<void>;
   getStorageStats(): Promise<StorageStats>;
   getSetting<T>(key: string, defaultValue: T): Promise<T>;
   setSetting<T>(key: string, value: T): Promise<void>;
@@ -74,7 +75,8 @@ class NativeDatabase implements DatabaseInterface {
         importance_score INTEGER NOT NULL DEFAULT 1,
         is_bookmarked INTEGER NOT NULL DEFAULT 0,
         is_read INTEGER NOT NULL DEFAULT 0,
-        nsfw_status INTEGER NOT NULL DEFAULT 0
+        nsfw_status INTEGER NOT NULL DEFAULT 0,
+        enrichment_attempted INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS idx_articles_pub_date ON articles(pub_date);
       CREATE INDEX IF NOT EXISTS idx_articles_importance ON articles(importance_score);
@@ -157,9 +159,10 @@ class NativeDatabase implements DatabaseInterface {
             importance_score INTEGER NOT NULL DEFAULT 1,
             is_bookmarked INTEGER NOT NULL DEFAULT 0,
             is_read INTEGER NOT NULL DEFAULT 0,
-            nsfw_status INTEGER NOT NULL DEFAULT 0
+            nsfw_status INTEGER NOT NULL DEFAULT 0,
+            enrichment_attempted INTEGER NOT NULL DEFAULT 0
           );
-          INSERT INTO articles_reborn SELECT id, title, link, source_name, source_icon_uri, pub_date, fetched_at, summary, image_uri, importance_score, is_bookmarked, is_read, 0 FROM articles;
+          INSERT INTO articles_reborn SELECT id, title, link, source_name, source_icon_uri, pub_date, fetched_at, summary, image_uri, importance_score, is_bookmarked, is_read, 0, 0 FROM articles;
           DROP TABLE articles;
           ALTER TABLE articles_reborn RENAME TO articles;
           CREATE INDEX IF NOT EXISTS idx_articles_pub_date ON articles(pub_date);
@@ -168,6 +171,45 @@ class NativeDatabase implements DatabaseInterface {
           CREATE INDEX IF NOT EXISTS idx_articles_read ON articles(is_read);
         `);
       }
+    }
+
+    // Migration v3: add enrichment_attempted column if missing, and mark
+    // already-enriched articles (have both a summary and an image) as attempted
+    // so they aren't re-processed.
+    const articleColsV3 = await db.getAllAsync<{ name: string }>('PRAGMA table_info(articles)');
+    if (!articleColsV3.some(c => c.name === 'enrichment_attempted')) {
+      try {
+        await db.execAsync('ALTER TABLE articles ADD COLUMN enrichment_attempted INTEGER NOT NULL DEFAULT 0');
+      } catch {
+        await db.execAsync(`
+          CREATE TABLE articles_reborn (
+            id TEXT PRIMARY KEY NOT NULL,
+            title TEXT NOT NULL,
+            link TEXT NOT NULL,
+            source_name TEXT NOT NULL,
+            source_icon_uri TEXT,
+            pub_date INTEGER NOT NULL,
+            fetched_at INTEGER NOT NULL,
+            summary TEXT,
+            image_uri TEXT,
+            importance_score INTEGER NOT NULL DEFAULT 1,
+            is_bookmarked INTEGER NOT NULL DEFAULT 0,
+            is_read INTEGER NOT NULL DEFAULT 0,
+            nsfw_status INTEGER NOT NULL DEFAULT 0,
+            enrichment_attempted INTEGER NOT NULL DEFAULT 0
+          );
+          INSERT INTO articles_reborn SELECT id, title, link, source_name, source_icon_uri, pub_date, fetched_at, summary, image_uri, importance_score, is_bookmarked, is_read, 0, 0 FROM articles;
+          DROP TABLE articles;
+          ALTER TABLE articles_reborn RENAME TO articles;
+          CREATE INDEX IF NOT EXISTS idx_articles_pub_date ON articles(pub_date);
+          CREATE INDEX IF NOT EXISTS idx_articles_importance ON articles(importance_score);
+          CREATE INDEX IF NOT EXISTS idx_articles_bookmarked ON articles(is_bookmarked);
+          CREATE INDEX IF NOT EXISTS idx_articles_read ON articles(is_read);
+        `);
+      }
+      await db.execAsync(
+        "UPDATE articles SET enrichment_attempted = 1 WHERE summary IS NOT NULL AND summary != '' AND image_uri IS NOT NULL"
+      );
     }
 
     // Migration v1: remove category column from old databases
@@ -193,9 +235,10 @@ class NativeDatabase implements DatabaseInterface {
                 importance_score INTEGER NOT NULL DEFAULT 1,
                 is_bookmarked INTEGER NOT NULL DEFAULT 0,
                 is_read INTEGER NOT NULL DEFAULT 0,
-                nsfw_status INTEGER NOT NULL DEFAULT 0
+                nsfw_status INTEGER NOT NULL DEFAULT 0,
+                enrichment_attempted INTEGER NOT NULL DEFAULT 0
               );
-              INSERT INTO articles_reborn SELECT id, title, link, source_name, source_icon_uri, pub_date, fetched_at, summary, image_uri, importance_score, is_bookmarked, is_read, 0 FROM articles;
+              INSERT INTO articles_reborn SELECT id, title, link, source_name, source_icon_uri, pub_date, fetched_at, summary, image_uri, importance_score, is_bookmarked, is_read, 0, 0 FROM articles;
               DROP TABLE articles;
               ALTER TABLE articles_reborn RENAME TO articles;
               CREATE INDEX IF NOT EXISTS idx_articles_pub_date ON articles(pub_date);
@@ -570,7 +613,7 @@ class NativeDatabase implements DatabaseInterface {
       summary: string | null; image_uri: string | null; importance_score: number;
     }>(
       `SELECT id, title, link, source_name, source_icon_uri, pub_date, fetched_at, summary, image_uri, importance_score
-       FROM articles WHERE image_uri IS NULL OR summary IS NULL OR summary = ''`
+       FROM articles WHERE enrichment_attempted = 0`
     );
     return rows.map((r) => ({
       id: r.id,
@@ -584,6 +627,21 @@ class NativeDatabase implements DatabaseInterface {
       image_uri: r.image_uri ?? undefined,
       importance_score: r.importance_score,
     }));
+  }
+
+  async markArticlesEnrichmentAttempted(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const db = await this.getDb();
+    // Chunk to avoid excessively large IN(...) clauses.
+    const CHUNK = 500;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const chunk = ids.slice(i, i + CHUNK);
+      const placeholders = chunk.map(() => '?').join(',');
+      await db.runAsync(
+        `UPDATE articles SET enrichment_attempted = 1 WHERE id IN (${placeholders})`,
+        chunk
+      );
+    }
   }
 
   async getStorageStats(): Promise<StorageStats> {
@@ -975,7 +1033,7 @@ class WebDatabase implements DatabaseInterface {
 
   async getArticlesNeedingEnrichment(): Promise<ArticleInput[]> {
     return this.getArticles()
-      .filter((a) => !a.image_uri || !a.summary)
+      .filter((a) => !a.enrichment_attempted)
       .map((a) => ({
         id: a.id,
         title: a.title,
@@ -988,6 +1046,19 @@ class WebDatabase implements DatabaseInterface {
         image_uri: a.image_uri,
         importance_score: a.importance_score,
       }));
+  }
+
+  async markArticlesEnrichmentAttempted(ids: string[]): Promise<void> {
+    const idSet = new Set(ids);
+    const articles = this.getArticles();
+    let changed = false;
+    for (const a of articles) {
+      if (idSet.has(a.id) && !a.enrichment_attempted) {
+        a.enrichment_attempted = true;
+        changed = true;
+      }
+    }
+    if (changed) this.saveArticlesToStorage(articles);
   }
 
   async getStorageStats(): Promise<StorageStats> {
@@ -1223,6 +1294,10 @@ export function getArticleCount(): Promise<number> {
 
 export function getArticlesNeedingEnrichment(): Promise<ArticleInput[]> {
   return getDb().getArticlesNeedingEnrichment();
+}
+
+export function markArticlesEnrichmentAttempted(ids: string[]): Promise<void> {
+  return getDb().markArticlesEnrichmentAttempted(ids);
 }
 
 export function getStorageStats(): Promise<StorageStats> {

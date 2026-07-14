@@ -12,6 +12,7 @@ export interface Article {
   is_bookmarked: boolean;
   is_read: boolean;
   nsfw_status: number; // 0=unclassified, 1=clean, 2=nsfw
+  enrichment_attempted?: boolean; // true once enrichment has been attempted (success or failure)
 }
 
 export interface ArticleInput {
@@ -25,6 +26,7 @@ export interface ArticleInput {
   summary: string;
   image_uri?: string;
   importance_score: number;
+  enrichment_attempted?: boolean;
 }
 
 export interface FeedSource {

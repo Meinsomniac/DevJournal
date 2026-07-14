@@ -18,7 +18,9 @@ import { useHaptics } from '@/hooks/useHaptics';
 import { Spacing } from '@/constants/Spacing';
 import { Typography } from '@/constants/Typography';
 import { Article, FeedSource, FilterState, DEFAULT_FILTER } from '@/types';
-import { getDigestFeed, toggleBookmark, saveArticles, getFilteredArticles, getEnabledFeedSources, getNotifiedArticleIds, markArticlesNotified, getArticleCount, markRead, getSetting, setSetting, pruneOldArticles, updateArticleNsfwStatus, updateArticleContent, getArticlesNeedingEnrichment } from '@/services/db';
+import { getDigestFeed, toggleBookmark, saveArticles, getFilteredArticles, 
+getEnabledFeedSources, getNotifiedArticleIds, markArticlesNotified, getArticleCount, markRead, getSetting, setSetting, 
+pruneOldArticles, updateArticleNsfwStatus, updateArticleContent, getArticlesNeedingEnrichment, markArticlesEnrichmentAttempted } from '@/services/db';
 import { fetchAllFeeds, enrichArticles } from '@/services/rssParser';
 import { classifyImage, isNSFWReady, initNSFWModel } from '@/services/nsfwDetector';
 import { deduplicateByLink } from '@/services/ranking';
@@ -285,6 +287,7 @@ export default function DigestScreen() {
           for (const a of enriched) {
             await updateArticleContent(a.id, a.summary, a.image_uri ?? null);
           }
+          await markArticlesEnrichmentAttempted(unique.map((a) => a.id));
           await loadData(searchQuery);
           await pruneOldArticles();
 
@@ -361,6 +364,7 @@ export default function DigestScreen() {
           for (const a of enriched) {
             await updateArticleContent(a.id, a.summary, a.image_uri ?? null);
           }
+          await markArticlesEnrichmentAttempted(leftovers.map((a) => a.id));
         } catch (e) {
           console.error('Leftover enrichment failed:', e);
         } finally {
@@ -376,12 +380,15 @@ export default function DigestScreen() {
     return () => clearTimeout(id);
   }, [dataVersion, loadData, searchQuery]);
 
-  // Ensure initially visible articles are classified once the list is shown,
-  // even if onViewableItemsChanged doesn't fire on first mount.
+  // Ensure visible articles are classified once the list is shown, even if
+  // onViewableItemsChanged doesn't fire (it only fires on scroll, not when the
+  // data prop changes with an unchanged scroll position — e.g. after a refresh
+  // or background fetch). Re-runs whenever the displayed list changes after the
+  // initial load; enqueueClassification deduplicates via classifyingIds.
   useEffect(() => {
     if (!initialLoadComplete || !isNSFWReady()) return;
     const currentArticles = articlesRef.current;
-    const initialCount = Math.min(currentArticles.length, 10);
+    const initialCount = Math.min(currentArticles.length, 15);
     for (let i = 0; i < initialCount; i++) {
       const article = currentArticles[i];
       if (article?.image_uri && article.nsfw_status === 0) {
@@ -389,7 +396,7 @@ export default function DigestScreen() {
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialLoadComplete]);
+  }, [initialLoadComplete, articles]);
 
   useEffect(() => {
     return () => {

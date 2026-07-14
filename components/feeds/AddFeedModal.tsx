@@ -170,8 +170,7 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
       moderateFeed(feed.rssUrl, feed.name).then(result => {
         setModerationPassed(result.allowed);
         if (!result.allowed) {
-          const labels = result.flaggedCategories.map(fc => fc.category.label).join(', ');
-          setError(`This feed contains content prohibited: ${labels}. Please choose a different source.`);
+          setError('This feed contains content we don\'t allow. Please choose a different source.');
         }
         return result;
       }),
@@ -181,7 +180,7 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
         feedReadyRef.current = true;
         toast.success('Feed validated and approved');
       } else if (!moderation.allowed) {
-        toast.error('Feed contains prohibited content');
+        toast.error('This feed contains content we don\'t allow.');
       } else {
         toast.error('Invalid RSS feed');
       }
