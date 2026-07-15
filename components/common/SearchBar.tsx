@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useCallback } from 'react';
-import { View, StyleSheet, TextInput, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TextInput, Pressable } from 'react-native';
 import { useTheme } from '@/hooks/useTheme';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { Search, X, SlidersHorizontal } from 'lucide-react-native';
@@ -13,6 +13,7 @@ interface SearchBarProps {
   filterActive?: boolean;
   placeholder?: string;
   autoFocus?: boolean;
+  maxLength?: number;
 }
 
 export function SearchBar({
@@ -24,6 +25,7 @@ export function SearchBar({
   filterActive = false,
   placeholder = 'Search articles...',
   autoFocus = false,
+  maxLength,
 }: SearchBarProps) {
   const { colors } = useTheme();
   const inputRef = useRef<TextInput>(null);
@@ -59,10 +61,21 @@ export function SearchBar({
           returnKeyType="search"
           autoCorrect={false}
           autoCapitalize="none"
+          maxLength={maxLength}
         />
         <Pressable onPress={onFilterPress} style={styles.filterButton} accessibilityLabel="Open filters">
           <SlidersHorizontal size={20} color={filterActive ? colors.brandPrimary : colors.textTertiary} />
         </Pressable>
+        {maxLength !== undefined && (
+          <Text
+            style={[
+              styles.counter,
+              { color: maxLength > 0 && value.length >= maxLength ? colors.warning : colors.textTertiary },
+            ]}
+          >
+            {value.length}/{maxLength}
+          </Text>
+        )}
         {value.length > 0 && (
           <Pressable onPress={handleClear} style={styles.clearButton} accessibilityLabel="Clear search">
             <X size={20} color={colors.textTertiary} />
@@ -93,6 +106,10 @@ const styles = StyleSheet.create({
   },
   filterButton: {
     padding: Spacing.xs,
+  },
+  counter: {
+    fontSize: 12,
+    paddingHorizontal: Spacing.xs,
   },
   clearButton: {
     padding: Spacing.xs,

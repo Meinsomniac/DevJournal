@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useApp } from '@/context/AppContext';
+import { useApp, ListMode } from '@/context/AppContext';
 import { useHaptics } from '@/hooks/useHaptics';
 import { toast } from 'sonner-native';
 import { Typography } from '@/constants/Typography';
@@ -38,8 +38,8 @@ export default function SettingsScreen() {
     colors,
     themeMode,
     setThemeMode,
-    compactMode,
-    setCompactMode,
+    listMode,
+    setListMode,
     autoMarkRead,
     setAutoMarkRead,
     notifyBreaking,
@@ -127,6 +127,12 @@ export default function SettingsScreen() {
     { mode: 'light', renderIcon: (c: string) => <Sun size={18} color={c} />, label: 'Light' },
   ];
 
+  const listModeOptions: { mode: ListMode; label: string }[] = [
+    { mode: 'flat', label: 'Flat' },
+    { mode: 'card', label: 'Card' },
+    { mode: 'compact', label: 'Compact' },
+  ];
+
   return (
     <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
       <Header title="Settings" />
@@ -157,15 +163,33 @@ export default function SettingsScreen() {
               </Pressable>
             ))}
           </View>
+          <View style={styles.listModeRow}>
+            {listModeOptions.map(({ mode, label }) => (
+              <Pressable
+                key={mode}
+                style={[
+                  styles.listModeButton,
+                  {
+                    borderColor: listMode === mode ? colors.brandPrimary : colors.borderLight,
+                    backgroundColor: listMode === mode ? colors.brandPrimary + '20' : 'transparent',
+                  },
+                ]}
+                onPress={() => { hapticLight(); setListMode(mode); }}
+              >
+                <Text
+                  style={[
+                    Typography.labelMedium,
+                    { color: listMode === mode ? colors.brandPrimary : colors.textSecondary },
+                  ]}
+                >
+                  {label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
           {renderSetting(
-            'Compact Mode',
-            'Show more articles with smaller cards',
-            <Switch
-              value={compactMode}
-              onValueChange={(value) => { hapticLight(); setCompactMode(value); }}
-              trackColor={{ false: colors.borderMedium, true: colors.brandPrimary + '50' }}
-              thumbColor={compactMode ? colors.brandPrimary : colors.textTertiary}
-            />
+            'Article Layout',
+            'Flat is a minimal list, Card shows full images, Compact is dense.',
           )}
         </>
       )}
@@ -311,6 +335,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: Spacing.xs,
     padding: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    borderWidth: 2,
+  },
+  listModeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
+    padding: Spacing.md,
+  },
+  listModeButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.md,
     borderWidth: 2,
   },

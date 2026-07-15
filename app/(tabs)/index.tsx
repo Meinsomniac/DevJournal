@@ -25,7 +25,6 @@ import { fetchAllFeeds, enrichArticles } from '@/services/rssParser';
 import { classifyImage, isNSFWReady, initNSFWModel } from '@/services/nsfwDetector';
 import { deduplicateByLink } from '@/services/ranking';
 import { sendBreakingNotificationBatch } from '@/services/notifications';
-import { requestBackgroundFetch } from '@/services/backgroundFetch';
 import { SearchBar } from '@/components/common';
 import { DigestCard, FilterModal } from '@/components/digest';
 import { ArticleSkeleton, EmptyState, Button } from '@/components/ui';
@@ -33,8 +32,10 @@ import { Newspaper, RefreshCw, ArrowUp } from 'lucide-react-native';
 
 const AnimatedPressable = ReAnimated.createAnimatedComponent(Pressable);
 
+const SEARCH_MAX_LENGTH = 100;
+
 export default function DigestScreen() {
-  const { colors, compactMode, dataVersion, notifyBreaking, autoMarkRead, bumpDataVersion } = useApp();
+  const { colors, listMode, dataVersion, notifyBreaking, autoMarkRead, bumpDataVersion } = useApp();
   const { hapticMedium } = useHaptics();
   const insets = useSafeAreaInsets();
 
@@ -43,6 +44,9 @@ export default function DigestScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [fetching, setFetching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  // Query whose results are currently shown — drives title highlighting.
+  // Updated only when a search is actually executed (not on every keystroke).
+  const [highlightQuery, setHighlightQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTER);
   const [showFilterModal, setShowFilterModal] = useState(false);
@@ -55,6 +59,7 @@ export default function DigestScreen() {
   const [classifyingIds, setClassifyingIds] = useState<Set<string>>(new Set());
   
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchQueryRef = useRef('');
   const appState = useRef(AppState.currentState);
   const listRef = useRef<any>(null);
   const scrollY = useMemo(() => new Animated.Value(0), []);
@@ -226,6 +231,7 @@ export default function DigestScreen() {
     filters.datePreset !== null;
 
   const loadData = useCallback(async (searchText: string, loadOffset = 0) => {
+    setHighlightQuery(searchText.trim());
     try {
       const hasFilters = filters.sourceNames.length > 0 || filters.minRating > 0 || filters.datePreset !== null;
       if (hasFilters || searchText.trim()) {
@@ -346,7 +352,7 @@ export default function DigestScreen() {
 
       const leftovers = await getArticlesNeedingEnrichment();
       if (leftovers.length === 0) {
-        await loadData(searchQuery);
+        await loadData(searchQueryRef.current);
         setInitialLoadComplete(true);
         return;
       }
@@ -368,7 +374,7 @@ export default function DigestScreen() {
         } catch (e) {
           console.error('Leftover enrichment failed:', e);
         } finally {
-          await loadData(searchQuery);
+          await loadData(searchQueryRef.current);
           setInitialLoadComplete(true);
           toast.dismiss(enrichToastId);
           toast.success('Articles ready');
@@ -378,7 +384,7 @@ export default function DigestScreen() {
     const id = setTimeout(init, 0);
     getEnabledFeedSources().then(setEnabledSources);
     return () => clearTimeout(id);
-  }, [dataVersion, loadData, searchQuery]);
+  }, [dataVersion, loadData]);
 
   // Ensure visible articles are classified once the list is shown, even if
   // onViewableItemsChanged doesn't fire (it only fires on scroll, not when the
@@ -406,11 +412,15 @@ export default function DigestScreen() {
 
   // Auto-fetch every 15 min while foregrounded + on app foreground
   useEffect(() => {
-    const interval = setInterval(() => requestBackgroundFetch(), 15 * 60 * 1000);
+    const interval = setInterval(() => {
+      const fn = fetchNewsRef.current;
+      if (fn) fn(false);
+    }, 15 * 60 * 1000);
 
     const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       if (appState.current.match(/inactive|background/) && nextState === 'active') {
-        requestBackgroundFetch();
+        const fn = fetchNewsRef.current;
+        if (fn) fn(false);
       }
       appState.current = nextState;
     });
@@ -423,6 +433,7 @@ export default function DigestScreen() {
 
   const handleSearchTextChange = useCallback((text: string) => {
     setSearchQuery(text);
+    searchQueryRef.current = text;
     setHasMore(true);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
@@ -434,6 +445,7 @@ export default function DigestScreen() {
     setHasMore(true);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     loadData(text);
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, [loadData]);
 
   const handleBookmark = useCallback(async (id: string) => {
@@ -457,6 +469,17 @@ export default function DigestScreen() {
     setFilters(DEFAULT_FILTER);
     setShowFilterModal(false);
   }, []);
+
+  // The init effect already reloads the list when filters change (loadData
+  // depends on filters). Here we just scroll back to the top on apply/remove.
+  const isFirstFilterApply = useRef(true);
+  useEffect(() => {
+    if (isFirstFilterApply.current) {
+      isFirstFilterApply.current = false;
+      return;
+    }
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, [filters]);
 
   const handleScroll = Animated.event(
     [{ nativeEvent: { contentOffset: { y: scrollY } } }],
@@ -496,11 +519,12 @@ export default function DigestScreen() {
   const renderArticle = useCallback(({ item }: { item: Article }) => (
     <DigestCard
       article={item}
-      variant={compactMode ? 'compact' : 'full'}
+      variant={listMode}
       onBookmark={handleBookmark}
       isClassifying={classifyingIds.has(item.id)}
+      highlight={highlightQuery}
     />
-  ), [compactMode, handleBookmark, classifyingIds]);
+  ), [listMode, handleBookmark, classifyingIds, highlightQuery]);
 
   if (!initialLoadComplete) {
     return (
@@ -526,6 +550,7 @@ export default function DigestScreen() {
           onFilterPress={handleOpenFilter}
           filterActive={isFilterActive}
           placeholder="Search articles..."
+          maxLength={SEARCH_MAX_LENGTH}
         />
       </View>
 

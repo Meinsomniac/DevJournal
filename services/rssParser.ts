@@ -1,8 +1,8 @@
 import { XMLParser } from 'fast-xml-parser';
 import { load } from 'cheerio';
 import { ArticleInput } from '@/types';
-import { stripHtml, extractImageFromHtml } from '@/utils/html';
-import { calculateImportanceScore } from './ranking';
+import { stripHtml, extractImageFromHtml, decodeHtmlEntities } from '@/utils/html';
+import { calculateImportanceScore, isPromotionalArticle, isAdultArticle } from './ranking';
 import { getEnabledFeeds, getDisabledFeeds, getCustomFeeds, getFeedCache, saveFeedCache, filterExistingArticles } from './db';
 
 const parser = new XMLParser({
@@ -131,9 +131,9 @@ function extractImage(item: RawFeedItem): string | undefined {
   // 1. media:thumbnail (common in RSS)
   if (item['media:thumbnail']) {
     const t = item['media:thumbnail'];
-    if (typeof t === 'string') return t;
-    if ('@_url' in t) return t['@_url'];
-    if ('url' in t) return t.url;
+    if (typeof t === 'string') return decodeHtmlEntities(t);
+    if ('@_url' in t) return decodeHtmlEntities(t['@_url']);
+    if ('url' in t) return decodeHtmlEntities(t.url);
   }
 
   // 2. enclosure image
@@ -141,7 +141,7 @@ function extractImage(item: RawFeedItem): string | undefined {
     const enc = item.enclosure;
     const url = '@_url' in enc ? enc['@_url'] : enc.url;
     const type = '@_type' in enc ? enc['@_type'] : enc.type;
-    if (url && type?.startsWith('image/')) return url;
+    if (url && type?.startsWith('image/')) return decodeHtmlEntities(url);
   }
 
   // 3. Extract from content
@@ -211,6 +211,9 @@ async function fetchArticleContent(url: string): Promise<{ summary?: string; ima
         summary = text;
       }
     });
+
+    // Decode HTML entities (e.g. &#038; → &) so the URL is valid for download.
+    if (image) image = decodeHtmlEntities(image);
 
     return { summary: summary || undefined, image: image || undefined };
   } catch {
@@ -428,13 +431,23 @@ export async function fetchAndParseFeed(
       }
     }
 
+    // DROP PROMOTIONAL/ADVERTISING ARTICLES (promo codes, coupon codes, etc.)
+    // and ADULT/PORNOGRAPHIC ARTICLES (nudity, sexual content) before any
+    // further (expensive) processing or saving.
+    const cleanArticles = allArticles.filter(
+      (a) => !isPromotionalArticle(a.title, a.summary) && !isAdultArticle(a.title, a.summary)
+    );
+    if (cleanArticles.length < allArticles.length) {
+      console.log(`[RSS] ${sourceName}: blocked ${allArticles.length - cleanArticles.length} promotional/adult article(s)`);
+    }
+
     // KEYWORD FILTER FIRST - before expensive content enrichment
     const relevantArticles = keywords && keywords.length > 0
-      ? allArticles.filter((a) => {
+      ? cleanArticles.filter((a) => {
           const text = `${a.title} ${a.summary}`.toLowerCase();
           return keywords.some((kw) => text.includes(kw.toLowerCase()));
         })
-      : allArticles;
+      : cleanArticles;
 
     if (keywords && keywords.length > 0 && relevantArticles.length < allArticles.length) {
       console.log(`[RSS] ${sourceName}: keyword filter kept ${relevantArticles.length}/${allArticles.length} articles`);

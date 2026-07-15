@@ -434,8 +434,8 @@ class NativeDatabase implements DatabaseInterface {
 
     if (searchText?.trim()) {
       const pattern = `%${searchText.trim()}%`;
-      conditions.push('(title LIKE ? OR summary LIKE ?)');
-      params.push(pattern, pattern);
+      conditions.push('title LIKE ?');
+      params.push(pattern);
     }
 
     if (filters.sourceNames.length > 0) {
@@ -917,9 +917,7 @@ class WebDatabase implements DatabaseInterface {
 
     if (searchText?.trim()) {
       const q = searchText.trim().toLowerCase();
-      articles = articles.filter(a =>
-        a.title.toLowerCase().includes(q) || a.summary?.toLowerCase().includes(q)
-      );
+      articles = articles.filter(a => a.title.toLowerCase().includes(q));
     }
 
     if (filters.sourceNames.length > 0) {

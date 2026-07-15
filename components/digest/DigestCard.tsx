@@ -28,12 +28,58 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 interface DigestCardProps {
   article: Article;
-  variant?: 'full' | 'compact';
+  variant?: 'flat' | 'card' | 'compact';
   onBookmark: (id: string) => void;
   isClassifying?: boolean;
+  highlight?: string;
 }
 
-export const DigestCard = React.memo(function DigestCard({ article, variant = 'full', onBookmark, isClassifying = false }: DigestCardProps) {
+// Renders `text` with case-insensitive occurrences of `query` highlighted.
+function renderHighlightedTitle(
+  text: string,
+  query: string,
+  baseColor: string,
+  highlightStyle: object,
+): React.ReactNode {
+  const q = query.trim();
+  if (!q) return text;
+
+  const lowerText = text.toLowerCase();
+  const lowerQuery = q.toLowerCase();
+  const parts: React.ReactNode[] = [];
+  let start = 0;
+  let key = 0;
+  let idx = lowerText.indexOf(lowerQuery, start);
+
+  while (idx !== -1) {
+    if (idx > start) {
+      parts.push(
+        <Text key={key++} style={{ color: baseColor }}>
+          {text.slice(start, idx)}
+        </Text>,
+      );
+    }
+    parts.push(
+      <Text key={key++} style={highlightStyle}>
+        {text.slice(idx, idx + q.length)}
+      </Text>,
+    );
+    start = idx + q.length;
+    idx = lowerText.indexOf(lowerQuery, start);
+  }
+
+  if (start < text.length) {
+    parts.push(
+      <Text key={key++} style={{ color: baseColor }}>
+        {text.slice(start)}
+      </Text>,
+    );
+  }
+
+  return parts;
+}
+
+export const DigestCard = React.memo(function DigestCard({ article, variant = 'card', onBookmark, isClassifying = false, highlight = '' }: DigestCardProps) {
   const { colors, isDark } = useTheme();
   const { hapticMedium } = useHaptics();
   const router = useRouter();
@@ -86,6 +132,72 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
     onBookmark(article.id);
   };
 
+  if (variant === 'flat') {
+    const image = !article.image_uri || imgError ? (
+      <View style={[styles.flatImage, { backgroundColor: colors.borderLight, alignItems: 'center', justifyContent: 'center' }]}>
+        <SourceIcon iconUri={iconUri} name={article.source_name} size={32} backgroundColor={colors.borderLight} color={colors.textTertiary} />
+      </View>
+    ) : isClassifying ? (
+      <RNAnimated.View style={[styles.flatImage, { backgroundColor: colors.borderLight, opacity: pulseAnim }]} />
+    ) : article.nsfw_status === 2 ? (
+      <View style={[styles.flatImage, { backgroundColor: colors.borderLight, alignItems: 'center', justifyContent: 'center' }]}>
+        <BrokenImageIcon size={32} />
+      </View>
+    ) : (
+      <Image source={{ uri: article.image_uri }} style={styles.flatImage} onError={() => setImgError(true)} />
+    );
+
+    return (
+      <AnimatedPressable onPress={handlePress} style={styles.flatContainer}>
+        <View style={styles.flatHeaderRow}>
+          <View style={styles.flatMeta}>
+            <ImportanceStars score={article.importance_score} size={12} color={colors.warning} animate={article.importance_score === 5} />
+            <Text style={[Typography.labelSmall, { color: colors.textTertiary }]}>·</Text>
+            <Text style={[Typography.labelSmall, { color: colors.textTertiary }]}>
+              {formatRelative(article.pub_date)}
+            </Text>
+          </View>
+          <View style={styles.flatActions}>
+            <AnimatedPressable
+              onPress={() => { hapticMedium(); toast.info('AI Insights — coming soon'); }}
+              style={styles.flatActionButton}
+            >
+              <Sparkles size={18} color={colors.textTertiary} />
+            </AnimatedPressable>
+            <AnimatedPressable onPress={handleBookmark} style={[styles.flatActionButton, bookmarkAnimatedStyle]}>
+              <Bookmark size={18} color={colors.textSecondary} fill={article.is_bookmarked ? colors.textSecondary : 'transparent'} />
+            </AnimatedPressable>
+          </View>
+        </View>
+
+        {image}
+
+        <Text
+          style={[Typography.headlineSmall, { color: colors.textPrimary }, styles.flatTitle]}
+          numberOfLines={2}
+        >
+          {highlight
+            ? renderHighlightedTitle(article.title, highlight, colors.textPrimary, {
+                backgroundColor: colors.brandPrimary,
+                color: colors.textInverse,
+              })
+            : article.title}
+        </Text>
+        {article.summary ? (
+          <Text style={[Typography.bodySmall, { color: colors.textSecondary }, styles.flatSummary]} numberOfLines={1}>
+            {article.summary}
+          </Text>
+        ) : null}
+        <View style={styles.flatSourceRow}>
+          <SourceIcon iconUri={iconUri} name={article.source_name} size={14} backgroundColor={colors.borderLight} color={colors.brandPrimary} />
+          <Text style={[Typography.labelSmall, { color: colors.textSecondary }]} numberOfLines={1}>
+            {article.source_name}
+          </Text>
+        </View>
+      </AnimatedPressable>
+    );
+  }
+
   if (variant === 'compact') {
     return (
       <AnimatedPressable
@@ -122,7 +234,12 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
             style={[Typography.titleSmall, { color: colors.textPrimary }]}
             numberOfLines={2}
           >
-            {article.title}
+            {highlight
+              ? renderHighlightedTitle(article.title, highlight, colors.textPrimary, {
+                  backgroundColor: colors.brandPrimary,
+                  color: colors.textInverse,
+                })
+              : article.title}
           </Text>
           <View style={styles.compactMeta}>
             <SourceIcon
@@ -183,7 +300,12 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'f
         style={[Typography.headlineSmall, { color: colors.textPrimary }, styles.title]}
         numberOfLines={2}
       >
-        {article.title}
+        {highlight
+          ? renderHighlightedTitle(article.title, highlight, colors.textPrimary, {
+              backgroundColor: colors.brandPrimary,
+              color: colors.textInverse,
+            })
+          : article.title}
       </Text>
 
       <View style={styles.meta}>
@@ -253,6 +375,47 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     marginBottom: Spacing.sm,
     padding: Spacing.sm,
+  },
+  flatContainer: {
+    paddingVertical: Spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  flatHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.sm,
+  },
+  flatMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  flatActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  flatActionButton: {
+    padding: Spacing.sm,
+  },
+  flatImage: {
+    width: '100%',
+    height: 160,
+    borderRadius: BorderRadius.sm,
+    marginBottom: Spacing.sm,
+  },
+  flatTitle: {
+    marginBottom: Spacing.xs,
+  },
+  flatSummary: {
+    marginBottom: Spacing.xs,
+  },
+  flatSourceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
   },
   header: {
     flexDirection: 'row',

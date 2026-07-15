@@ -19,7 +19,7 @@ import { Bookmark } from 'lucide-react-native';
 import { DigestCard } from '@/components/digest';
 
 export default function SavedScreen() {
-  const { colors, compactMode, bumpDataVersion, dataVersion } = useApp();
+  const { colors, listMode, bumpDataVersion, dataVersion } = useApp();
   const { hapticMedium } = useHaptics();
   const insets = useSafeAreaInsets();
 
@@ -64,10 +64,10 @@ export default function SavedScreen() {
   const renderBookmarkItem = useCallback(({ item }: { item: Article }) => (
     <DigestCard
       article={item}
-      variant={compactMode ? 'compact' : 'full'}
+      variant={listMode}
       onBookmark={handleToggleBookmark}
     />
-  ), [compactMode, handleToggleBookmark]);
+  ), [listMode, handleToggleBookmark]);
 
   if (loading) {
     return (

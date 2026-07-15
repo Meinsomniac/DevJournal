@@ -16,8 +16,9 @@ import { useHaptics } from '@/hooks/useHaptics';
 import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { Article } from '@/types';
-import { getArticleById, toggleBookmark, markRead } from '@/services/db';
+import { getArticleById, toggleBookmark, markRead, updateArticleNsfwStatus } from '@/services/db';
 import { getClassifyingIds, subscribe as subscribeClassificationIds } from '@/services/classificationStore';
+import { classifyImage, isNSFWReady } from '@/services/nsfwDetector';
 import { formatDateTime } from '@/utils/date';
 import { ImportanceStars, SourceIcon, BrokenImageIcon } from '@/components/ui';
 import { Bookmark, ExternalLink } from 'lucide-react-native';
@@ -36,9 +37,10 @@ export default function ArticleScreen() {
   const [article, setArticle] = useState<Article | null>(null);
   const [loading, setLoading] = useState(true);
   const [imgError, setImgError] = useState(false);
+  const [localClassifying, setLocalClassifying] = useState(false);
 
   const classifyingIds = useSyncExternalStore(subscribeClassificationIds, getClassifyingIds);
-  const isClassifying = classifyingIds.has(id);
+  const isClassifying = localClassifying || classifyingIds.has(id);
 
   const wasClassifying = useRef(false);
 
@@ -51,6 +53,47 @@ export default function ArticleScreen() {
     }
     wasClassifying.current = currentlyClassifying;
   }, [classifyingIds, id]);
+
+  // The feed only classifies visible items and never reports status to this
+  // screen, so an unclassified article (nsfw_status === 0) would otherwise show
+  // its image with no NSFW check. Classify it here and only reveal the image
+  // once it is explicitly marked safe (nsfw_status === 1).
+  useEffect(() => {
+    if (!article || !article.image_uri || article.nsfw_status !== 0) return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const run = async () => {
+      if (cancelled) return;
+      if (!isNSFWReady()) {
+        timer = setTimeout(run, 500);
+        return;
+      }
+
+      setLocalClassifying(true);
+      let status = 1;
+      try {
+        const result = await classifyImage(article.image_uri!, article.title);
+        status = result ? (result.isNSFW ? 2 : 1) : 1;
+      } catch {
+        status = 1; // mirror feed: don't hide on transient failures
+      } finally {
+        if (!cancelled) setLocalClassifying(false);
+      }
+
+      if (cancelled) return;
+      await updateArticleNsfwStatus(article.id, status);
+      const fresh = await getArticleById(article.id);
+      if (!cancelled && fresh) setArticle(fresh);
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [article?.id, article?.image_uri, article?.nsfw_status]);
 
   const pulseAnim = useRef(new RNAnimated.Value(1)).current;
 
@@ -206,17 +249,15 @@ export default function ArticleScreen() {
           </View>
         </View>
 
-        {article.image_uri && !imgError && article.nsfw_status !== 2 ? (
-          isClassifying ? (
-            <RNAnimated.View style={[styles.articleImage, { backgroundColor: colors.borderLight, opacity: pulseAnim }]} />
-          ) : (
-            <Image
-              source={{ uri: article.image_uri }}
-              style={[styles.articleImage, { backgroundColor: colors.borderLight }]}
-              resizeMode="cover"
-              onError={() => setImgError(true)}
-            />
-          )
+        {article.image_uri && !imgError && article.nsfw_status === 1 ? (
+          <Image
+            source={{ uri: article.image_uri }}
+            style={[styles.articleImage, { backgroundColor: colors.borderLight }]}
+            resizeMode="cover"
+            onError={() => setImgError(true)}
+          />
+        ) : isClassifying ? (
+          <RNAnimated.View style={[styles.imagePlaceholder, { backgroundColor: colors.borderLight, opacity: pulseAnim }]} />
         ) : (
           <View style={[styles.imagePlaceholder, { backgroundColor: colors.borderLight }]}>
             <BrokenImageIcon size={48} />

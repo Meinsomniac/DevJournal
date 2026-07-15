@@ -3,7 +3,9 @@ import '@tensorflow/tfjs-react-native/dist/platform_react_native';
 import { bundleResourceIO } from '@tensorflow/tfjs-react-native/dist/bundle_resource_io';
 import { decodeJpeg } from '@tensorflow/tfjs-react-native/dist/decode_image';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
-import { Paths, File as FSFile, readAsStringAsync } from 'expo-file-system';
+import { decodeHtmlEntities } from '@/utils/html';
+import { Paths, File as FSFile } from 'expo-file-system';
+import { readAsStringAsync } from 'expo-file-system/legacy';
 
 // ── CONFIG ──
 const CLASS_NAMES = ['Drawing', 'Hentai', 'Neutral', 'Porn', 'Sexy'] as const;
@@ -179,8 +181,9 @@ async function loadImageAsJpegBytes(imageUrl: string): Promise<Uint8Array> {
   let jpgFile: FSFile | null = null;
 
   try {
+    const cleanUrl = decodeHtmlEntities(imageUrl);
     rawFile = (await FSFile.downloadFileAsync(
-      imageUrl,
+      cleanUrl,
       Paths.cache,
     )) as unknown as FSFile;
 

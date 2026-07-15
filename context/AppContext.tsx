@@ -4,10 +4,11 @@ import { Colors, ColorScheme } from '@/constants/Colors';
 import { getSetting, setSetting } from '@/services/db';
 
 type ThemeMode = 'system' | 'light' | 'dark';
+export type ListMode = 'flat' | 'card' | 'compact';
 
 interface SettingsState {
   themeMode: ThemeMode;
-  compactMode: boolean;
+  listMode: ListMode;
   autoMarkRead: boolean;
   notifyBreaking: boolean;
 }
@@ -16,12 +17,12 @@ interface AppContextValue {
   colors: ColorScheme;
   isDark: boolean;
   themeMode: ThemeMode;
-  compactMode: boolean;
+  listMode: ListMode;
   autoMarkRead: boolean;
   notifyBreaking: boolean;
   dataVersion: number;
   setThemeMode: (mode: ThemeMode) => void;
-  setCompactMode: (value: boolean) => void;
+  setListMode: (mode: ListMode) => void;
   setAutoMarkRead: (value: boolean) => void;
   setNotifyBreaking: (value: boolean) => void;
   bumpDataVersion: () => void;
@@ -31,7 +32,7 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 const DEFAULT_SETTINGS: SettingsState = {
   themeMode: 'system',
-  compactMode: false,
+  listMode: 'flat',
   autoMarkRead: true,
   notifyBreaking: true,
 };
@@ -49,13 +50,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const [themeMode, compactMode, autoMarkRead, notifyBreaking] = await Promise.all([
+        const [themeMode, listModeRaw, legacyCompact, autoMarkRead, notifyBreaking] = await Promise.all([
           getSetting<ThemeMode>('themeMode', 'system'),
+          getSetting<ListMode | null>('listMode', null),
           getSetting<boolean>('compactMode', false),
           getSetting<boolean>('autoMarkRead', true),
           getSetting<boolean>('notifyBreaking', true),
         ]);
-        setSettings({ themeMode, compactMode, autoMarkRead, notifyBreaking });
+        // Migrate the old boolean "compact mode": true -> 'compact', otherwise
+        // fall back to the new default 'flat'.
+        const listMode = listModeRaw ?? (legacyCompact ? 'compact' : 'flat');
+        setSettings({ themeMode, listMode, autoMarkRead, notifyBreaking });
       } catch (error) {
         console.error('Failed to load settings:', error);
       } finally {
@@ -87,12 +92,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     colors,
     isDark,
     themeMode: settings.themeMode,
-    compactMode: settings.compactMode,
+    listMode: settings.listMode,
     autoMarkRead: settings.autoMarkRead,
     notifyBreaking: settings.notifyBreaking,
     dataVersion,
     setThemeMode: (mode) => updateSetting('themeMode', mode),
-    setCompactMode: (value) => updateSetting('compactMode', value),
+    setListMode: (mode) => updateSetting('listMode', mode),
     setAutoMarkRead: (value) => updateSetting('autoMarkRead', value),
     setNotifyBreaking: (value) => updateSetting('notifyBreaking', value),
     bumpDataVersion,

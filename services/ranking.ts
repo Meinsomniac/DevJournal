@@ -1,4 +1,4 @@
-import { MAJOR_KEYWORDS, MINOR_KEYWORDS } from '@/constants/Keywords';
+import { MAJOR_KEYWORDS, MINOR_KEYWORDS, PROMO_BLOCKLIST, ADULT_BLOCKLIST } from '@/constants/Keywords';
 
 export function calculateImportanceScore(title: string, summary: string, source: string): number {
   const text = (title + ' ' + summary).toLowerCase();
@@ -46,6 +46,20 @@ export function calculateImportanceScore(title: string, summary: string, source:
 
   // Clamp between 1 and 5
   return Math.max(1, Math.min(5, Math.round(score)));
+}
+
+// Returns true when an article looks like promotional/advertising content
+// (promo codes, coupon codes, sponsored posts, etc.) and should be blocked.
+export function isPromotionalArticle(title: string, summary: string): boolean {
+  const text = `${title} ${summary}`.toLowerCase();
+  return PROMO_BLOCKLIST.some((term) => text.includes(term));
+}
+
+// Returns true when an article looks like adult/pornographic content
+// (nudity, sexual content, etc.) and should be blocked.
+export function isAdultArticle(title: string, summary: string): boolean {
+  const text = `${title} ${summary}`.toLowerCase();
+  return ADULT_BLOCKLIST.some((term) => text.includes(term));
 }
 
 export function deduplicateByLink<T extends { link: string }>(articles: T[]): T[] {

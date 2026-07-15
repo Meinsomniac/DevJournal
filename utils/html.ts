@@ -33,6 +33,10 @@ const NAMED_ENTITIES: Record<string, string> = {
   loz: '◆', star: '★',
 };
 
+export function decodeHtmlEntities(text: string): string {
+  return decodeEntities(text);
+}
+
 function decodeEntities(text: string): string {
   return text.replace(/&(#?[a-zA-Z0-9]+);/g, (match, entity) => {
     // Decimal numeric: &#123;
@@ -104,5 +108,5 @@ export function extractImageFromHtml(html: unknown): string | undefined {
   if (!str) return undefined;
 
   const match = str.match(/<img[^>]+src=["']([^"']+)["']/i);
-  return match ? match[1] : undefined;
+  return match ? decodeHtmlEntities(match[1]) : undefined;
 }
