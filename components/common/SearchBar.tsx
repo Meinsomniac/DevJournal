@@ -66,16 +66,6 @@ export function SearchBar({
         <Pressable onPress={onFilterPress} style={styles.filterButton} accessibilityLabel="Open filters">
           <SlidersHorizontal size={20} color={filterActive ? colors.brandPrimary : colors.textTertiary} />
         </Pressable>
-        {maxLength !== undefined && (
-          <Text
-            style={[
-              styles.counter,
-              { color: maxLength > 0 && value.length >= maxLength ? colors.warning : colors.textTertiary },
-            ]}
-          >
-            {value.length}/{maxLength}
-          </Text>
-        )}
         {value.length > 0 && (
           <Pressable onPress={handleClear} style={styles.clearButton} accessibilityLabel="Clear search">
             <X size={20} color={colors.textTertiary} />

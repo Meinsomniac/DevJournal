@@ -41,6 +41,14 @@ const BUILTIN_FEEDS: CustomFeed[] = [
   { id: 'xda', name: 'XDA', url: 'https://www.xda-developers.com/feed/', rss_url: 'https://www.xda-developers.com/feed/', icon: fav('xda-developers.com'), added_at: 0 },
   { id: 'devto', name: 'DEV Community', url: 'https://dev.to/feed', rss_url: 'https://dev.to/feed', icon: fav('dev.to'), added_at: 0 },
   { id: 'theregister', name: 'The Register', url: 'https://www.theregister.com/headlines.atom', rss_url: 'https://www.theregister.com/headlines.atom', icon: fav('theregister.com'), added_at: 0 },
+  { id: 'notebookcheck-1784133557025', name: 'Notebookcheck', url: 'https://www.notebookcheck.net/', rss_url: 'https://www.notebookcheck.net/RSS-Feed-Notebook-Reviews.8156.0.html', icon: 'https://www.google.com/s2/favicons?domain=www.notebookcheck.net&sz=64', added_at: 0 },
+  { id: '9to5linux-1784120637811', name: '9to5Linux', url: 'https://9to5linux.com/', rss_url: 'https://9to5linux.com/feed', icon: 'https://www.google.com/s2/favicons?domain=9to5linux.com&sz=64', added_at: 0 },
+  { id: 'hackster-io-1784120536502', name: 'Hackster.io', url: 'https://www.hackster.io/', rss_url: 'https://www.hackster.io/projects.rss?sort=recent', icon: 'https://www.google.com/s2/favicons?domain=www.hackster.io&sz=64', added_at: 0 },
+  { id: 'infoworld-1784120091341', name: 'InfoWorld', url: 'https://www.infoworld.com/', rss_url: 'https://www.infoworld.com/feed/', icon: 'https://www.google.com/s2/favicons?domain=www.infoworld.com&sz=64', added_at: 0 },
+  { id: 'openai-1783966906408', name: 'OpenAI', url: 'https://openai.com/news/', rss_url: 'https://openai.com/news/rss.xml', icon: 'https://www.google.com/s2/favicons?domain=openai.com&sz=64', added_at: 0 },
+  { id: 'developer-tech-1783966761372', name: 'Developer Tech', url: 'https://www.developer-tech.com/', rss_url: 'https://www.developer-tech.com/feed/', icon: 'https://www.google.com/s2/favicons?domain=www.developer-tech.com&sz=64', added_at: 0 },
+  { id: 'kdnuggets-1783960979912', name: 'KDnuggets', url: 'https://www.kdnuggets.com/', rss_url: 'https://www.kdnuggets.com/feed/', icon: 'https://www.google.com/s2/favicons?domain=www.kdnuggets.com&sz=64', added_at: 0 },
+  { id: 'marktechpost-1783960902552', name: 'Marktechpost', url: 'https://marktechpost.com', rss_url: 'https://marktechpost.com/feed', icon: 'https://www.google.com/s2/favicons?domain=marktechpost.com&sz=64', added_at: 0 },
 ];
 
 const BUILTIN_IDS = new Set(BUILTIN_FEEDS.map(f => f.id));
@@ -149,6 +157,7 @@ export default function FeedsScreen() {
 
   const builtinFeeds = BUILTIN_FEEDS;
   const customOnlyFeeds = customFeeds.filter(f => !BUILTIN_IDS.has(f.id));
+  console.log(customOnlyFeeds);
 
   const handleToggleAll = useCallback(async (enable: boolean) => {
     const allFeeds = [...BUILTIN_FEEDS, ...customOnlyFeeds];
