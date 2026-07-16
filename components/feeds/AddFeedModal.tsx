@@ -88,9 +88,7 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
   }));
 
   function animateConfirmIn() {
-    // eslint-disable-next-line react-hooks/immutability
     confirmScale.value = withTiming(1, { duration: 250 });
-    // eslint-disable-next-line react-hooks/immutability
     confirmOpacity.value = withTiming(1, { duration: 200 });
   }
 

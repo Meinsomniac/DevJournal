@@ -4,15 +4,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/useTheme';
 import { Typography } from '@/constants/Typography';
 import { Spacing } from '@/constants/Spacing';
-import { Settings, Bell } from 'lucide-react-native';
+import { Settings } from 'lucide-react-native';
 
 interface HeaderProps {
   title: string;
   subtitle?: string;
   showSettings?: boolean;
-  showNotifications?: boolean;
   onSettingsPress?: () => void;
-  onNotificationPress?: () => void;
   rightContent?: React.ReactNode;
 }
 
@@ -20,9 +18,7 @@ export function Header({
   title,
   subtitle,
   showSettings,
-  showNotifications,
   onSettingsPress,
-  onNotificationPress,
   rightContent,
 }: HeaderProps) {
   const { colors } = useTheme();
@@ -43,11 +39,6 @@ export function Header({
         </View>
         <View style={styles.rightContent}>
           {rightContent}
-          {showNotifications && (
-            <TouchableOpacity onPress={onNotificationPress} style={styles.iconButton}>
-              <Bell size={22} color={colors.textSecondary} />
-            </TouchableOpacity>
-          )}
           {showSettings && (
             <TouchableOpacity onPress={onSettingsPress} style={styles.iconButton}>
               <Settings size={22} color={colors.textSecondary} />

@@ -164,7 +164,6 @@ export default function DigestScreen() {
 
   useEffect(() => {
     if (initialLoadComplete) {
-      // eslint-disable-next-line react-hooks/immutability
       listOpacity.value = withTiming(1, { duration: 400 });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -497,18 +496,15 @@ export default function DigestScreen() {
   );
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/immutability
     fabScale.value = withSpring(showScrollTop ? 1 : 0, { stiffness: 600, damping: 100 });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showScrollTop]);
 
   function handleFabPressIn() {
-    // eslint-disable-next-line react-hooks/immutability
     fabScale.value = withTiming(0.9, { duration: 60 });
   }
 
   function handleFabPressOut() {
-    // eslint-disable-next-line react-hooks/immutability
     fabScale.value = withTiming(1, { duration: 100 });
   }
 

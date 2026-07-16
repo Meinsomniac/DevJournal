@@ -1360,13 +1360,15 @@ export function clearFeedCache(): Promise<void> {
 
 export async function seedCustomFeedsIfNeeded(): Promise<void> {
   const { FEED_SOURCES } = await import('@/constants/Feeds');
-  const keepIds = new Set(FEED_SOURCES.map(s => s.id));
 
   const existing = await getCustomFeeds();
-  const hasBuiltin = existing.some(f => keepIds.has(f.id));
+  const existingIds = new Set(existing.map(f => f.id));
 
-  if (!hasBuiltin) {
-    for (const source of FEED_SOURCES) {
+  // Ensure every current built-in source exists in custom_feeds and is enabled.
+  // Idempotent: runs on every launch so newly added feeds get seeded even if
+  // an older build already seeded a different (now-stale) set of feeds.
+  for (const source of FEED_SOURCES) {
+    if (!existingIds.has(source.id)) {
       await addCustomFeed({
         id: source.id,
         name: source.name,
@@ -1375,7 +1377,12 @@ export async function seedCustomFeedsIfNeeded(): Promise<void> {
         icon: source.icon,
         added_at: Date.now(),
       });
-      await setFeedEnabled(source.id, true);
     }
+    await setFeedEnabled(source.id, true);
   }
+
+  // Remove legacy/orphan feeds (e.g. old timestamped ids, "devto"/DEV Community)
+  // that are no longer part of FEED_SOURCES.
+  const validIds = new Set(FEED_SOURCES.map(s => s.id));
+  await getDb().retainOnlyFeeds(validIds);
 }

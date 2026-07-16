@@ -154,11 +154,9 @@ export default function ArticleScreen() {
 
     const wasBookmarked = article.is_bookmarked;
     hapticMedium();
-    // eslint-disable-next-line react-hooks/immutability
     bookmarkScale.value = withSpring(1.3, { stiffness: 600, damping: 300 }, () => {
       bookmarkScale.value = withSpring(1, { stiffness: 600, damping: 300 });
     });
-    // eslint-disable-next-line react-hooks/immutability
     bookmarkRotation.value = withTiming(1, { duration: 150 }, () => {
       bookmarkRotation.value = withTiming(0, { duration: 150 });
     });
