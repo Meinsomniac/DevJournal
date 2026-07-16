@@ -230,12 +230,13 @@ export default function DigestScreen() {
     filters.minRating > 0 ||
     filters.datePreset !== null;
 
-  const loadData = useCallback(async (searchText: string, loadOffset = 0) => {
+  const loadData = useCallback(async (searchText: string, loadOffset = 0, showSearchingIndicator = false) => {
     setHighlightQuery(searchText.trim());
+    const hasFilters = filters.sourceNames.length > 0 || filters.minRating > 0 || filters.datePreset !== null;
+    const showSpinner = showSearchingIndicator && loadOffset === 0 && (hasFilters || searchText.trim());
+    if (showSpinner) setSearching(true);
     try {
-      const hasFilters = filters.sourceNames.length > 0 || filters.minRating > 0 || filters.datePreset !== null;
       if (hasFilters || searchText.trim()) {
-        if (loadOffset === 0) setSearching(true);
         const results = await getFilteredArticles(filters, searchText.trim() || undefined, PAGE_SIZE, loadOffset);
         if (loadOffset === 0) setArticles(results);
         else setArticles(prev => [...prev, ...results]);
@@ -250,7 +251,7 @@ export default function DigestScreen() {
       console.error('Failed to load articles:', error);
     } finally {
       setLoading(false);
-      setSearching(false);
+      if (showSpinner) setSearching(false);
       setLoadingMore(false);
     }
   }, [filters]);
@@ -294,7 +295,7 @@ export default function DigestScreen() {
             await updateArticleContent(a.id, a.summary, a.image_uri ?? null);
           }
           await markArticlesEnrichmentAttempted(unique.map((a) => a.id));
-          await loadData(searchQuery);
+          await loadData(searchQuery, 0, false);
           await pruneOldArticles();
 
           if (breaking.length > 0) {
@@ -352,7 +353,7 @@ export default function DigestScreen() {
 
       const leftovers = await getArticlesNeedingEnrichment();
       if (leftovers.length === 0) {
-        await loadData(searchQueryRef.current);
+        await loadData(searchQueryRef.current, 0, false);
         setInitialLoadComplete(true);
         return;
       }
@@ -374,7 +375,7 @@ export default function DigestScreen() {
         } catch (e) {
           console.error('Leftover enrichment failed:', e);
         } finally {
-          await loadData(searchQueryRef.current);
+          await loadData(searchQueryRef.current, 0, false);
           setInitialLoadComplete(true);
           toast.dismiss(enrichToastId);
           toast.success('Articles ready');
@@ -394,7 +395,7 @@ export default function DigestScreen() {
   useEffect(() => {
     if (!initialLoadComplete || !isNSFWReady()) return;
     const currentArticles = articlesRef.current;
-    const initialCount = Math.min(currentArticles.length, 15);
+    const initialCount = Math.min(currentArticles.length, 5);
     for (let i = 0; i < initialCount; i++) {
       const article = currentArticles[i];
       if (article?.image_uri && article.nsfw_status === 0) {
@@ -437,14 +438,14 @@ export default function DigestScreen() {
     setHasMore(true);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      loadData(text);
+      loadData(text, 0, true);
     }, 300);
   }, [loadData]);
 
   const handleSearchSubmit = useCallback((text: string) => {
     setHasMore(true);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    loadData(text);
+    loadData(text, 0, true);
     listRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, [loadData]);
 
@@ -539,6 +540,8 @@ export default function DigestScreen() {
   }
 
   const isEmpty = articles.length === 0 && !searching && !loading;
+
+  console.log("rendered")
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bgPrimary, paddingTop: insets.top + Spacing.lg }]}>

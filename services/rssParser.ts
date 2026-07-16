@@ -547,7 +547,7 @@ export async function enrichArticles(
   let done = 0;
   onProgress?.(0, total);
 
-  const BATCH_SIZE = 2;
+  const BATCH_SIZE = 3;
   for (let i = 0; i < toEnrich.length; i += BATCH_SIZE) {
     const batch = toEnrich.slice(i, i + BATCH_SIZE);
     await Promise.all(batch.map(async (article) => {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
-import { View, StyleSheet, ScrollView, Text, Pressable, ActivityIndicator, Platform, Image, Animated as RNAnimated } from 'react-native';
+import { View, StyleSheet, ScrollView, Text, Pressable, ActivityIndicator, Platform, Animated as RNAnimated } from 'react-native';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
@@ -253,7 +254,9 @@ export default function ArticleScreen() {
           <Image
             source={{ uri: article.image_uri }}
             style={[styles.articleImage, { backgroundColor: colors.borderLight }]}
-            resizeMode="cover"
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={150}
             onError={() => setImgError(true)}
           />
         ) : isClassifying ? (

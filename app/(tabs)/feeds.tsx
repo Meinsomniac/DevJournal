@@ -39,7 +39,7 @@ const BUILTIN_FEEDS: CustomFeed[] = [
   { id: 'venturebeat', name: 'VentureBeat', url: 'https://venturebeat.com/feed/', rss_url: 'https://venturebeat.com/feed/', icon: fav('venturebeat.com'), added_at: 0 },
   { id: 'techcrunch-dev', name: 'TechCrunch', url: 'https://techcrunch.com/feed/', rss_url: 'https://techcrunch.com/feed/', icon: fav('techcrunch.com'), added_at: 0 },
   { id: 'xda', name: 'XDA', url: 'https://www.xda-developers.com/feed/', rss_url: 'https://www.xda-developers.com/feed/', icon: fav('xda-developers.com'), added_at: 0 },
-  { id: 'devto', name: 'DEV Community', url: 'https://dev.to/feed', rss_url: 'https://dev.to/feed', icon: fav('dev.to'), added_at: 0 },
+  // { id: 'devto', name: 'DEV Community', url: 'https://dev.to/feed', rss_url: 'https://dev.to/feed', icon: fav('dev.to'), added_at: 0 },
   { id: 'theregister', name: 'The Register', url: 'https://www.theregister.com/headlines.atom', rss_url: 'https://www.theregister.com/headlines.atom', icon: fav('theregister.com'), added_at: 0 },
   { id: 'notebookcheck-1784133557025', name: 'Notebookcheck', url: 'https://www.notebookcheck.net/', rss_url: 'https://www.notebookcheck.net/RSS-Feed-Notebook-Reviews.8156.0.html', icon: 'https://www.google.com/s2/favicons?domain=www.notebookcheck.net&sz=64', added_at: 0 },
   { id: '9to5linux-1784120637811', name: '9to5Linux', url: 'https://9to5linux.com/', rss_url: 'https://9to5linux.com/feed', icon: 'https://www.google.com/s2/favicons?domain=9to5linux.com&sz=64', added_at: 0 },

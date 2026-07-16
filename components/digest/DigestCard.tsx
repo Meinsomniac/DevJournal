@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Pressable, Image, Animated as RNAnimated } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Animated as RNAnimated } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import Animated, {
   useSharedValue,
@@ -144,7 +145,7 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'c
         <BrokenImageIcon size={32} />
       </View>
     ) : (
-      <Image source={{ uri: article.image_uri }} style={styles.flatImage} onError={() => setImgError(true)} />
+      <Image source={{ uri: article.image_uri }} style={styles.flatImage} contentFit="cover" cachePolicy="memory-disk" transition={150} onError={() => setImgError(true)} />
     );
 
     return (
@@ -224,7 +225,7 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'c
             <BrokenImageIcon size={20} />
           </View>
         ) : (
-          <Image source={{ uri: article.image_uri }} style={styles.compactImage} onError={() => setImgError(true)} />
+          <Image source={{ uri: article.image_uri }} style={styles.compactImage} contentFit="cover" cachePolicy="memory-disk" transition={150} onError={() => setImgError(true)} />
         )}
         <View style={styles.compactContent}>
           <View style={styles.compactTop}>
@@ -293,7 +294,7 @@ export const DigestCard = React.memo(function DigestCard({ article, variant = 'c
           <BrokenImageIcon size={32} />
         </View>
       ) : (
-        <Image source={{ uri: article.image_uri }} style={styles.image} onError={() => setImgError(true)} />
+        <Image source={{ uri: article.image_uri }} style={styles.image} contentFit="cover" cachePolicy="memory-disk" transition={150} onError={() => setImgError(true)} />
       )}
 
       <Text

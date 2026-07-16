@@ -12,7 +12,7 @@ export const FEED_SOURCES: FeedSource[] = [
   { id: 'venturebeat', name: 'VentureBeat', url: 'https://venturebeat.com/feed/', icon: fav('venturebeat.com'), enabled: true },
   { id: 'techcrunch-dev', name: 'TechCrunch', url: 'https://techcrunch.com/feed/', icon: fav('techcrunch.com'), enabled: true },
   { id: 'xda', name: 'XDA', url: 'https://www.xda-developers.com/feed/', icon: fav('xda-developers.com'), enabled: true },
-  { id: 'devto', name: 'DEV Community', url: 'https://dev.to/feed', icon: fav('dev.to'), enabled: true },
+  // { id: 'devto', name: 'DEV Community', url: 'https://dev.to/feed', icon: fav('dev.to'), enabled: true },
   { id: 'theregister', name: 'The Register', url: 'https://www.theregister.com/headlines.atom', icon: fav('theregister.com'), enabled: true, keywords: GENERAL_KEYWORDS },
   { id: 'notebookcheck-1784133557025', name: 'Notebookcheck', url: 'https://www.notebookcheck.net/RSS-Feed-Notebook-Reviews.8156.0.html', icon: 'https://www.google.com/s2/favicons?domain=www.notebookcheck.net&sz=64', enabled: true },
   { id: '9to5linux-1784120637811', name: '9to5Linux', url: 'https://9to5linux.com/feed', icon: 'https://www.google.com/s2/favicons?domain=9to5linux.com&sz=64', enabled: true },
