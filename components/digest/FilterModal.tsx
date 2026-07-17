@@ -23,6 +23,7 @@ import {
   FeedSource,
 } from '@/types';
 import { SlidersHorizontal, Star, Check } from 'lucide-react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const AnimatedPressable = ReAnimated.createAnimatedComponent(Pressable);
 
@@ -106,6 +107,8 @@ export function FilterModal({ visible, filters, onApply, onClear, onClose, sourc
     (localFilters.minRating > 0 ? 1 : 0) +
     (localFilters.datePreset !== null ? 1 : 0);
 
+  const {bottom} = useSafeAreaInsets();
+
   return (
     <Modal
       visible={visible}
@@ -114,7 +117,7 @@ export function FilterModal({ visible, filters, onApply, onClear, onClose, sourc
       onRequestClose={onClose}
     >
       <Pressable style={styles.backdrop} onPress={onClose}>
-        <AnimatedPressable style={[styles.sheet, { backgroundColor: colors.bgPrimary }, sheetAnimatedStyle]} onPress={e => e.stopPropagation()}>
+        <AnimatedPressable style={[styles.sheet, { backgroundColor: colors.bgPrimary, marginBottom: bottom  }, sheetAnimatedStyle]} onPress={e => e.stopPropagation()}>
           <View style={styles.handleContainer}>
             <View style={[styles.handle, { backgroundColor: colors.borderMedium }]} />
           </View>

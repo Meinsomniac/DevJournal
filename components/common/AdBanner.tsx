@@ -1,0 +1,48 @@
+import React from 'react';
+import { View, StyleSheet } from 'react-native';
+import { BannerAd, BannerAdSize } from 'react-native-google-mobile-ads';
+import { useTheme } from '@/hooks/useTheme';
+import { Spacing } from '@/constants/Spacing';
+const isDev = __DEV__
+
+// Google's official test banner ad unit — always returns a test ad and never
+// earns real revenue, so it is safe to use while developing. Swap for your
+// real production banner ad unit ID behind a __DEV__ check before release.
+const BANNER_AD_UNIT_ID = isDev
+  ? 'ca-app-pub-3940256099942544/9214589741'
+  : 'ca-app-pub-7106899968085818/3353538171';
+
+export default function AdBanner() {
+  const { colors } = useTheme();
+
+  return (
+    <View
+      style={[
+        styles.container,
+        { backgroundColor: colors.bgTertiary, borderColor: colors.borderLight },
+      ]}
+    >
+      <BannerAd
+        unitId={BANNER_AD_UNIT_ID}
+        size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+        requestOptions={{
+          requestNonPersonalizedAdsOnly: false,
+        }}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: 8,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+});

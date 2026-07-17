@@ -13,6 +13,14 @@ import { seedCustomFeedsIfNeeded } from '@/services/db';
 import { registerBackgroundFetch } from '@/services/backgroundFetch';
 import { requestNotificationPermissions, setupNotificationResponseHandler } from '@/services/notifications';
 import { initNSFWModel } from '@/services/nsfwDetector';
+import mobileAds from 'react-native-google-mobile-ads';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+mobileAds().initialize().then(adapterStatuses => {
+  console.log('Mobile Ads initialized:', adapterStatuses);
+}).catch(error => {
+  console.error('Error initializing Mobile Ads:', error);
+});
 
 SplashScreen.preventAutoHideAsync();
 SplashScreen.hideAsync();
@@ -36,33 +44,36 @@ function ThemedLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="article/[id]"
-          options={{
-            headerShown: true,
-            headerBackTitle: 'Back',
-            headerTintColor: colors.textPrimary,
-            headerStyle: {
-              backgroundColor: colors.bgPrimary,
-            },
+      {/* <SafeAreaView style={{ flex: 1}}> */}
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="article/[id]"
+            options={{
+              headerShown: true,
+              headerBackTitle: 'Back',
+              headerTintColor: colors.textPrimary,
+              headerStyle: {
+                backgroundColor: colors.bgPrimary,
+              },
+            }}
+          />
+          <Stack.Screen name="+not-found" />
+        </Stack>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <Toaster
+          position='top-center'
+          theme={isDark ? 'dark' : 'light'}
+          duration={2000}
+          icons={{ loading: <ActivityIndicator color={colors.textSecondary} /> }}
+          toastOptions={{
+            style: { backgroundColor: toastBg },
+            titleStyle: { color: colors.textPrimary },
+            descriptionStyle: { color: colors.textSecondary },
           }}
         />
-        <Stack.Screen name="+not-found" />
-      </Stack>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
-      <Toaster
-        position='top-center'
-        theme={isDark ? 'dark' : 'light'}
-        duration={2000}
-        icons={{ loading: <ActivityIndicator color={colors.textSecondary} /> }}
-        toastOptions={{
-          style: { backgroundColor: toastBg },
-          titleStyle: { color: colors.textPrimary },
-          descriptionStyle: { color: colors.textSecondary },
-        }}
-      />
+
+      {/* </SafeAreaView> */}
     </GestureHandlerRootView>
   );
 }

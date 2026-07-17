@@ -262,8 +262,6 @@ export async function classifyImage(
       scores[CLASS_NAMES[i]] = probabilities[i];
     }
 
-    console.log({ articleTitle, scores });
-
     const isNSFW =
       scores.Porn >= THRESHOLDS.Porn ||
       scores.Hentai >= THRESHOLDS.Hentai ||

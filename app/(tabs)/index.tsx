@@ -26,6 +26,7 @@ import { classifyImage, isNSFWReady, initNSFWModel } from '@/services/nsfwDetect
 import { deduplicateByLink } from '@/services/ranking';
 import { sendBreakingNotificationBatch } from '@/services/notifications';
 import { SearchBar } from '@/components/common';
+import AdBanner from '@/components/common/AdBanner';
 import { DigestCard, FilterModal } from '@/components/digest';
 import { ArticleSkeleton, EmptyState, Button } from '@/components/ui';
 import { Newspaper, RefreshCw, ArrowUp } from 'lucide-react-native';
@@ -33,6 +34,23 @@ import { Newspaper, RefreshCw, ArrowUp } from 'lucide-react-native';
 const AnimatedPressable = ReAnimated.createAnimatedComponent(Pressable);
 
 const SEARCH_MAX_LENGTH = 100;
+const ARTICLES_PER_AD = 8;
+
+type FeedItem = { type: 'article'; article: Article } | { type: 'ad'; key: string };
+
+// Interleave a banner ad marker after every ARTICLES_PER_AD articles so a
+// banner appears after article 8, 16, 24, etc. (but never at the very end).
+function buildFeedWithAds(articles: Article[]): FeedItem[] {
+  const feed: FeedItem[] = [];
+  articles.forEach((article, index) => {
+    feed.push({ type: 'article', article });
+    const isLast = index + 1 === articles.length;
+    if ((index + 1) % ARTICLES_PER_AD === 0 && !isLast) {
+      feed.push({ type: 'ad', key: `ad-${index}` });
+    }
+  });
+  return feed;
+}
 
 export default function DigestScreen() {
   const { colors, listMode, dataVersion, notifyBreaking, autoMarkRead, bumpDataVersion } = useApp();
@@ -175,34 +193,37 @@ export default function DigestScreen() {
 
   const onViewableItemsChangedRef = useRef((...args: any[]) => {});
   
-  onViewableItemsChangedRef.current = ({ viewableItems }: { viewableItems: { item: Article; index?: number }[] }) => {
+  onViewableItemsChangedRef.current = ({ viewableItems }: { viewableItems: { item: FeedItem; index?: number }[] }) => {
     // Auto mark read
     if (autoMarkRead) {
       viewableItems.forEach(({ item }) => {
-        if (!markedReadRef.current.has(item.id)) {
-          markedReadRef.current.add(item.id);
-          markRead(item.id);
+        if (item.type === 'article' && !markedReadRef.current.has(item.article.id)) {
+          markedReadRef.current.add(item.article.id);
+          markRead(item.article.id);
         }
       });
     }
-    // Classify visible items plus a 2 up / 2 down buffer, debounced
+    // Classify visible items plus a 2 up / 3 down buffer, debounced.
+    // Map the visible *article* indices back into the source `articles` array
+    // using the current feed-with-ads layout.
     if (!isNSFWReady()) return;
     if (classificationDebounceRef.current) clearTimeout(classificationDebounceRef.current);
     classificationDebounceRef.current = setTimeout(() => {
       const currentArticles = articlesRef.current;
       let minIdx = Infinity;
       let maxIdx = -Infinity;
-      viewableItems.forEach(({ index }) => {
-        if (typeof index === 'number') {
-          minIdx = Math.min(minIdx, index);
-          maxIdx = Math.max(maxIdx, index);
-        }
+      viewableItems.forEach(({ item, index }) => {
+        if (item.type !== 'article' || typeof index !== 'number') return;
+        // Count only article items before this position to get the source index.
+        const sourceIndex = index - Math.floor(index / (ARTICLES_PER_AD + 1));
+        minIdx = Math.min(minIdx, sourceIndex);
+        maxIdx = Math.max(maxIdx, sourceIndex);
       });
       const from = minIdx === Infinity ? 0 : Math.max(0, minIdx - 2);
       const to =
         maxIdx === -1
           ? currentArticles.length - 1
-          : Math.min(currentArticles.length - 1, maxIdx + 2);
+          : Math.min(currentArticles.length - 1, maxIdx + 3);
       for (let i = from; i <= to; i++) {
         const article = currentArticles[i];
         if (article?.image_uri && article.nsfw_status === 0) {
@@ -218,7 +239,7 @@ export default function DigestScreen() {
     };
   }, []);
 
-  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: { item: Article }[] }) => {
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: { item: FeedItem }[] }) => {
     onViewableItemsChangedRef.current({ viewableItems });
   }, []);
 
@@ -513,15 +534,22 @@ export default function DigestScreen() {
     listRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, [hapticMedium]);
 
-  const renderArticle = useCallback(({ item }: { item: Article }) => (
-    <DigestCard
-      article={item}
-      variant={listMode}
-      onBookmark={handleBookmark}
-      isClassifying={classifyingIds.has(item.id)}
-      highlight={highlightQuery}
-    />
-  ), [listMode, handleBookmark, classifyingIds, highlightQuery]);
+  const feedWithAds = useMemo(() => buildFeedWithAds(articles), [articles]);
+
+  const renderFeedItem = useCallback(({ item }: { item: FeedItem }) => {
+    if (item.type === 'ad') {
+      return <AdBanner />;
+    }
+    return (
+      <DigestCard
+        article={item.article}
+        variant={listMode}
+        onBookmark={handleBookmark}
+        isClassifying={classifyingIds.has(item.article.id)}
+        highlight={highlightQuery}
+      />
+    );
+  }, [listMode, handleBookmark, classifyingIds, highlightQuery]);
 
   if (!initialLoadComplete) {
     return (
@@ -586,9 +614,9 @@ export default function DigestScreen() {
         <ReAnimated.View style={[{ flex: 1 }, listAnimatedStyle]}>
           <FlashList
             ref={listRef}
-            data={articles}
-            keyExtractor={(item) => item.id}
-            renderItem={renderArticle}
+            data={feedWithAds}
+            keyExtractor={(item) => (item.type === 'ad' ? item.key : item.article.id)}
+            renderItem={renderFeedItem}
             contentContainerStyle={[
               styles.listContent,
               { paddingBottom: insets.bottom + Spacing.xxl },

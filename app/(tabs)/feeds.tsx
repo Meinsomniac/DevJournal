@@ -155,7 +155,6 @@ export default function FeedsScreen() {
 
   const builtinFeeds = BUILTIN_FEEDS;
   const customOnlyFeeds = customFeeds.filter(f => !BUILTIN_IDS.has(f.id));
-  console.log(customOnlyFeeds);
 
   const handleToggleAll = useCallback(async (enable: boolean) => {
     const allFeeds = [...BUILTIN_FEEDS, ...customOnlyFeeds];

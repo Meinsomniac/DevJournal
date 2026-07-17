@@ -3,7 +3,8 @@
   "compilerOptions": {
     "strict": true,
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      // "@react-native-google-mobile-ads": ["./node_modules/react-native-google-mobile-ads/lib/typescript/index.d.ts"]
     }
   },
   "include": [

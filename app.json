@@ -51,7 +51,24 @@
       "expo-web-browser",
       "expo-splash-screen",
       "expo-sqlite",
-      "expo-background-task"
+      "expo-background-task",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-7106899968085818~5951781354",
+          "iosAppId": "ca-app-pub-7106899968085818~5951781354",
+          "android_app_id": "ca-app-pub-7106899968085818~5951781354",
+          "ios_app_id": "ca-app-pub-7106899968085818~5951781354"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
