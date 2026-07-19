@@ -35,6 +35,26 @@ import { X, Plus, Globe, AlertTriangle } from 'lucide-react-native';
 
 const AnimatedPressable = ReAnimated.createAnimatedComponent(Pressable);
 
+// Extract the domain root from arbitrary input. Strips the scheme, then keeps
+// only the host (with a trailing slash), discarding any path/query. If no valid
+// host is found, returns the original input trimmed so the user can fix it.
+function extractDomainRoot(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return '';
+
+  let url: URL;
+  try {
+    url = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`);
+  } catch {
+    return trimmed.replace(/^https?:\/\//i, '');
+  }
+
+  const host = url.hostname;
+  if (!host) return trimmed.replace(/^https?:\/\//i, '');
+
+  return `${host}/`;
+}
+
 interface AddFeedModalProps {
   visible: boolean;
   onClose: () => void;
@@ -53,6 +73,7 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
   const [customName, setCustomName] = useState('');
   const [customIcon, setCustomIcon] = useState('');
   const [checkingFeed, setCheckingFeed] = useState(false);
+  const [verifyingUrl, setVerifyingUrl] = useState('');
   const [feedValid, setFeedValid] = useState<boolean | null>(null);
   const [moderationPassed, setModerationPassed] = useState(true);
   const inputRef = useRef<TextInput>(null);
@@ -75,6 +96,7 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
       setCustomName('');
       setCustomIcon('');
       setCheckingFeed(false);
+      setVerifyingUrl('');
       setFeedValid(null);
       setModerationPassed(true);
       feedReadyRef.current = false;
@@ -94,7 +116,10 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
 
   const handleUrlChange = useCallback((text: string) => {
     setHttpWarning(/^http:\/\//i.test(text));
-    const cleaned = text.replace(/^https?:\/\//i, '');
+    // If the user pastes a full article URL, keep only the domain root
+    // (e.g. "https://www.gizmochina.com/2026/07/12/post/" -> "www.gizmochina.com/")
+    // so they don't have to trim the path themselves.
+    const cleaned = extractDomainRoot(text);
     setUrl(cleaned);
     setAddingFeed(null);
     setError('');
@@ -148,17 +173,11 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
   }, [url, existingFeedUrls]);
 
   const handleAddFeed = useCallback((feed: DiscoveredFeed) => {
-    setAddingFeed(feed);
-    setCustomName(feed.name);
-    setCustomIcon(feed.favicon);
     setError('');
     feedReadyRef.current = false;
-
-    animateConfirmIn();
-
     setCheckingFeed(true);
-    setFeedValid(null);
-    setModerationPassed(true);
+    setVerifyingUrl(feed.rssUrl);
+    setCustomIcon(feed.favicon);
 
     Promise.all([
       validateRssUrl(feed.rssUrl).then(valid => {
@@ -167,23 +186,29 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
       }),
       moderateFeed(feed.rssUrl, feed.name).then(result => {
         setModerationPassed(result.allowed);
-        if (!result.allowed) {
-          setError('This feed contains content we don\'t allow. Please choose a different source.');
-        }
         return result;
       }),
     ]).then(([valid, moderation]) => {
       setCheckingFeed(false);
+      setVerifyingUrl('');
       if (valid && moderation.allowed) {
+        // Only open the dialog after verification succeeds.
+        setAddingFeed(feed);
+        setCustomName(feed.name.slice(0, 25));
+        setModerationPassed(true);
         feedReadyRef.current = true;
+        animateConfirmIn();
         toast.success('Feed validated and approved');
       } else if (!moderation.allowed) {
+        setError('This feed contains content we don\'t allow. Please choose a different source.');
         toast.error('This feed contains content we don\'t allow.');
       } else {
+        setError('Invalid RSS feed. Please try a different URL.');
         toast.error('Invalid RSS feed');
       }
     }).catch(() => {
       setCheckingFeed(false);
+      setVerifyingUrl('');
       setError('Failed to verify feed. Please try again.');
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -200,7 +225,7 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
     Keyboard.dismiss();
     setLoading(true);
 
-    const name = customName.trim() || addingFeed.name;
+    const name = (customName.trim() || addingFeed.name).slice(0, 25);
     const id = name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
@@ -339,8 +364,13 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
                         <TouchableOpacity
                           style={[styles.addButton, { backgroundColor: colors.brandPrimary }]}
                           onPress={() => handleAddFeed(feed)}
+                          disabled={verifyingUrl === feed.rssUrl}
                         >
-                          <Plus size={16} color={colors.textInverse} />
+                          {verifyingUrl === feed.rssUrl ? (
+                            <ActivityIndicator size={16} color={colors.textInverse} />
+                          ) : (
+                            <Plus size={16} color={colors.textInverse} />
+                          )}
                         </TouchableOpacity>
                       </View>
 
@@ -382,10 +412,11 @@ export function AddFeedModal({ visible, onClose, onFeedAdded, existingFeedUrls }
                       <TextInput
                         style={[styles.confirmNameInput, { color: colors.textPrimary, backgroundColor: colors.bgTertiary, borderColor: colors.borderLight }]}
                         value={customName}
-                        onChangeText={setCustomName}
+                        onChangeText={(text) => setCustomName(text.slice(0, 25))}
                         placeholder="Feed name"
                         placeholderTextColor={colors.textTertiary}
                         autoCorrect={false}
+                        maxLength={25}
                       />
 
                       {/* URL display */}

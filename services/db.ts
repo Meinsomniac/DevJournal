@@ -738,6 +738,14 @@ class NativeDatabase implements DatabaseInterface {
         tokenize='porter unicode61'
       )`
     );
+    // "Clear Data" wipes all articles and every user-added custom feed source.
+    // Built-in seeded sources and app settings (incl. the seededBuiltins flag)
+    // are preserved, so the app keeps working without re-seeding.
+    const { FEED_SOURCES } = await import('@/constants/Feeds');
+    const builtinIds = FEED_SOURCES.map(s => s.id);
+    const placeholders = builtinIds.map(() => '?').join(',');
+    await db.runAsync(`DELETE FROM feed_preferences WHERE feed_id NOT IN (${placeholders})`, [...builtinIds]);
+    await db.runAsync(`DELETE FROM custom_feeds WHERE id NOT IN (${placeholders})`, [...builtinIds]);
   }
 
   async retainOnlyFeeds(keepIds: Set<string>): Promise<void> {
@@ -1123,7 +1131,22 @@ class WebDatabase implements DatabaseInterface {
   }
 
   async clearAllData(): Promise<void> {
-    localStorage.removeItem(this.STORAGE_KEY);
+    // "Clear Data" wipes all articles and every user-added custom feed source.
+    // Built-in seeded sources and app settings are preserved.
+    const { FEED_SOURCES } = await import('@/constants/Feeds');
+    const builtinIds = new Set(FEED_SOURCES.map(s => s.id));
+
+    localStorage.setItem(this.CUSTOM_FEEDS_KEY, JSON.stringify(
+      this.getCustomFeedsSync().filter(f => builtinIds.has(f.id))
+    ));
+
+    const feeds = JSON.parse(localStorage.getItem(this.FEEDS_KEY) || '{}');
+    for (const id of Object.keys(feeds)) {
+      if (!builtinIds.has(id)) delete feeds[id];
+    }
+    localStorage.setItem(this.FEEDS_KEY, JSON.stringify(feeds));
+
+    this.saveArticlesToStorage([]);
   }
 
   async retainOnlyFeeds(keepIds: Set<string>): Promise<void> {
@@ -1359,14 +1382,18 @@ export function clearFeedCache(): Promise<void> {
 }
 
 export async function seedCustomFeedsIfNeeded(): Promise<void> {
+  // Seed only once per install. On subsequent launches we skip entirely so that
+  // user-added custom feeds are never touched or removed. "Clear Data" in
+  // settings resets this flag so built-ins get re-seeded on next launch.
+  const alreadySeeded = await getSetting<boolean>('seededBuiltins', false);
+  if (alreadySeeded) return;
+
   const { FEED_SOURCES } = await import('@/constants/Feeds');
 
   const existing = await getCustomFeeds();
   const existingIds = new Set(existing.map(f => f.id));
 
-  // Ensure every current built-in source exists in custom_feeds and is enabled.
-  // Idempotent: runs on every launch so newly added feeds get seeded even if
-  // an older build already seeded a different (now-stale) set of feeds.
+  // Ensure every built-in source exists in custom_feeds and is enabled.
   for (const source of FEED_SOURCES) {
     if (!existingIds.has(source.id)) {
       await addCustomFeed({
@@ -1381,8 +1408,5 @@ export async function seedCustomFeedsIfNeeded(): Promise<void> {
     await setFeedEnabled(source.id, true);
   }
 
-  // Remove legacy/orphan feeds (e.g. old timestamped ids, "devto"/DEV Community)
-  // that are no longer part of FEED_SOURCES.
-  const validIds = new Set(FEED_SOURCES.map(s => s.id));
-  await getDb().retainOnlyFeeds(validIds);
+  await setSetting('seededBuiltins', true);
 }
