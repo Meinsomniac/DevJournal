@@ -12,19 +12,25 @@ const BANNER_AD_UNIT_ID = isDev
   ? 'ca-app-pub-3940256099942544/9214589741'
   : 'ca-app-pub-7106899968085818/3353538171';
 
-export default function AdBanner() {
+const INTERSTITIAL_AD_UNIT_ID = isDev
+  ? 'ca-app-pub-3940256099942544/1033173712'
+  : 'ca-app-pub-7106899968085818/7868282074';
+
+export { INTERSTITIAL_AD_UNIT_ID };
+
+export default function AdBanner({size = BannerAdSize.ANCHORED_ADAPTIVE_BANNER}: {size?: BannerAdSize}) {
   const { colors } = useTheme();
 
   return (
     <View
       style={[
         styles.container,
-        { backgroundColor: colors.bgTertiary, borderColor: colors.borderLight },
+        { backgroundColor: colors.bgPrimary, borderWidth: 0 },
       ]}
     >
       <BannerAd
         unitId={BANNER_AD_UNIT_ID}
-        size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+        size={size}
         requestOptions={{
           requestNonPersonalizedAdsOnly: false,
         }}

@@ -4,6 +4,7 @@ import { ArticleInput } from '@/types';
 import { stripHtml, extractImageFromHtml, decodeHtmlEntities } from '@/utils/html';
 import { calculateImportanceScore, isPromotionalArticle, isAdultArticle } from './ranking';
 import { getEnabledFeeds, getDisabledFeeds, getCustomFeeds, getFeedCache, saveFeedCache, filterExistingArticles } from './db';
+import { FEED_SOURCES } from '@/constants/Feeds';
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -441,11 +442,19 @@ export async function fetchAndParseFeed(
       console.log(`[RSS] ${sourceName}: blocked ${allArticles.length - cleanArticles.length} promotional/adult article(s)`);
     }
 
-    // KEYWORD FILTER FIRST - before expensive content enrichment
+    // KEYWORD FILTER FIRST - before expensive content enrichment.
+    // Hard filter: articles from a source with keywords that match NONE of
+    // them are dropped entirely (off-topic, e.g. entertainment/lifestyle on a
+    // general tech feed). Matching uses word boundaries so "app" won't match
+    // "snap"/"happen" and "data" won't match "date".
     const relevantArticles = keywords && keywords.length > 0
       ? cleanArticles.filter((a) => {
           const text = `${a.title} ${a.summary}`.toLowerCase();
-          return keywords.some((kw) => text.includes(kw.toLowerCase()));
+          return keywords.some((kw) => {
+            const term = kw.toLowerCase();
+            const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return new RegExp(`\\b${escaped}\\b`, 'i').test(text);
+          });
         })
       : cleanArticles;
 
@@ -505,9 +514,20 @@ export async function fetchAllFeeds(skipCache: boolean = false, enrich: boolean 
     return enabledIds.includes(feed.id);
   });
 
+  // Map each active source to its relevance keywords (from FEED_SOURCES config).
+  // Sources without a `keywords` entry (e.g. custom feeds) pass `undefined`,
+  // which keeps the current behaviour of saving all of their articles.
+  const keywordLookup = new Map<string, string[] | undefined>();
+  for (const source of activeSources) {
+    const builtin = FEED_SOURCES.find(
+      (s) => s.id === source.id || s.name === source.name
+    );
+    keywordLookup.set(source.id, builtin?.keywords);
+  }
+
   const results = await Promise.allSettled(
     activeSources.map(source =>
-      fetchAndParseFeed(source.rss_url, source.name, source.icon, skipCache, undefined, enrich)
+      fetchAndParseFeed(source.rss_url, source.name, source.icon, skipCache, keywordLookup.get(source.id), enrich)
     )
   );
 

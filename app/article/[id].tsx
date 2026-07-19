@@ -17,7 +17,10 @@ import { useHaptics } from '@/hooks/useHaptics';
 import { Typography } from '@/constants/Typography';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
 import { Article } from '@/types';
-import { getArticleById, toggleBookmark, markRead, updateArticleNsfwStatus } from '@/services/db';
+import { getArticleById, toggleBookmark, markRead, updateArticleNsfwStatus, getSetting, setSetting } from '@/services/db';
+import { InterstitialAd, AdEventType, BannerAdSize } from 'react-native-google-mobile-ads';
+import { INTERSTITIAL_AD_UNIT_ID } from '@/components/common/AdBanner';
+import AdBanner from '@/components/common/AdBanner';
 import { getClassifyingIds, subscribe as subscribeClassificationIds } from '@/services/classificationStore';
 import { classifyImage, isNSFWReady } from '@/services/nsfwDetector';
 import { formatDateTime } from '@/utils/date';
@@ -44,6 +47,48 @@ export default function ArticleScreen() {
   const isClassifying = localClassifying || classifyingIds.has(id);
 
   const wasClassifying = useRef(false);
+  const countedThisMount = useRef(false);
+  const pendingShowRef = useRef(false);
+
+  const interstitialRef = useRef<InterstitialAd | null>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
+
+  const loadInterstitial = useCallback(() => {
+    cleanupRef.current?.();
+    const ad = InterstitialAd.createForAdRequest(INTERSTITIAL_AD_UNIT_ID, {
+      requestNonPersonalizedAdsOnly: false,
+    });
+    const unsubscribeLoaded = ad.addAdEventListener(AdEventType.LOADED, () => {
+      interstitialRef.current = ad;
+      if (pendingShowRef.current) {
+        pendingShowRef.current = false;
+        ad.show();
+      }
+    });
+    const unsubscribeError = ad.addAdEventListener(AdEventType.ERROR, () => {
+      interstitialRef.current = null;
+    });
+    const unsubscribeClosed = ad.addAdEventListener(AdEventType.CLOSED, () => {
+      interstitialRef.current = null;
+      loadInterstitial();
+    });
+    cleanupRef.current = () => {
+      unsubscribeLoaded();
+      unsubscribeError();
+      unsubscribeClosed();
+    };
+    ad.load();
+  }, []);
+
+  useEffect(() => {
+    loadInterstitial();
+    return () => {
+      cleanupRef.current?.();
+      cleanupRef.current = null;
+      interstitialRef.current = null;
+      pendingShowRef.current = false;
+    };
+  }, [loadInterstitial]);
 
   useEffect(() => {
     const currentlyClassifying = classifyingIds.has(id);
@@ -139,6 +184,22 @@ export default function ArticleScreen() {
         if (found) {
           await markRead(id);
         }
+
+        // Count successful article-detail opens (once per mount) and show an
+        // interstitial every 15th open.
+        if (!countedThisMount.current) {
+          countedThisMount.current = true;
+          const count = await getSetting<number>('articleOpenCount', 0);
+          const nextCount = count + 1;
+          await setSetting('articleOpenCount', nextCount);
+          if (nextCount % 15 === 0) {
+            if (interstitialRef.current) {
+              interstitialRef.current.show();
+            } else {
+              pendingShowRef.current = true;
+            }
+          }
+        }
       } catch (error) {
         console.error('Failed to load article:', error);
       } finally {
@@ -207,13 +268,13 @@ export default function ArticleScreen() {
           headerTintColor: colors.textPrimary,
           headerStyle: { backgroundColor: colors.bgPrimary },
           headerRight: () => (
-              <AnimatedPressable onPress={handleBookmark} style={[styles.headerIcon, bookmarkAnimatedStyle]}>
-                <Bookmark
-                  size={22}
-                  color={article.is_bookmarked ? colors.warning : colors.textSecondary}
-                  fill={article.is_bookmarked ? colors.warning : 'transparent'}
-                />
-              </AnimatedPressable>
+            <AnimatedPressable onPress={handleBookmark} style={[styles.headerIcon, bookmarkAnimatedStyle]}>
+              <Bookmark
+                size={22}
+                color={article.is_bookmarked ? colors.warning : colors.textSecondary}
+                fill={article.is_bookmarked ? colors.warning : 'transparent'}
+              />
+            </AnimatedPressable>
           ),
         }}
       />
@@ -276,6 +337,10 @@ export default function ArticleScreen() {
           </View>
         )}
       </ScrollView>
+
+      <View style={{backgroundColor: colors.bgPrimary}}>
+        <AdBanner size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER} />
+      </View>
 
       <View style={[styles.footer, { backgroundColor: colors.bgPrimary, paddingBottom: insets.bottom + Spacing.lg }]}>
         <Pressable
