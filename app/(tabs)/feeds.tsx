@@ -47,6 +47,7 @@ const BUILTIN_FEEDS: CustomFeed[] = [
   { id: 'developer-tech', name: 'Developer Tech', url: 'https://www.developer-tech.com/', rss_url: 'https://www.developer-tech.com/feed/', icon: 'https://www.google.com/s2/favicons?domain=www.developer-tech.com&sz=64', added_at: 0 },
   { id: 'kdnuggets', name: 'KDnuggets', url: 'https://www.kdnuggets.com/', rss_url: 'https://www.kdnuggets.com/feed/', icon: 'https://www.google.com/s2/favicons?domain=www.kdnuggets.com&sz=64', added_at: 0 },
   { id: 'marktechpost', name: 'Marktechpost', url: 'https://marktechpost.com', rss_url: 'https://marktechpost.com/feed', icon: 'https://www.google.com/s2/favicons?domain=marktechpost.com&sz=64', added_at: 0 },
+  { id: 'thenewstack', name: 'TheNewStack', url: 'https://thenewstack.io/', rss_url: 'https://thenewstack.io/feed/', icon: fav('thenewstack.io'), added_at: 0 },
 ];
 
 const BUILTIN_IDS = new Set(BUILTIN_FEEDS.map(f => f.id));

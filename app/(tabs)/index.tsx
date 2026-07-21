@@ -45,9 +45,9 @@ function buildFeedWithAds(articles: Article[]): FeedItem[] {
   articles.forEach((article, index) => {
     feed.push({ type: 'article', article });
     const isLast = index + 1 === articles.length;
-    if ((index + 1) % ARTICLES_PER_AD === 0 && !isLast) {
-      feed.push({ type: 'ad', key: `ad-${index}` });
-    }
+    // if ((index + 1) % ARTICLES_PER_AD === 0 && !isLast) {
+    //   feed.push({ type: 'ad', key: `ad-${index}` });
+    // }
   });
   return feed;
 }

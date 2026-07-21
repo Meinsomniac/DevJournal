@@ -38,4 +38,5 @@ export const FEED_SOURCES: FeedSource[] = [
   { id: 'developer-tech', name: 'Developer Tech', url: 'https://www.developer-tech.com/feed/', icon: 'https://www.google.com/s2/favicons?domain=www.developer-tech.com&sz=64', enabled: true },
   { id: 'kdnuggets', name: 'KDnuggets', url: 'https://www.kdnuggets.com/feed/', icon: 'https://www.google.com/s2/favicons?domain=www.kdnuggets.com&sz=64', enabled: true },
   { id: 'marktechpost', name: 'Marktechpost', url: 'https://marktechpost.com/feed', icon: 'https://www.google.com/s2/favicons?domain=marktechpost.com&sz=64', enabled: true },
+  { id: 'thenewstack', name: 'TheNewStack', url: 'https://thenewstack.io/feed/', icon: fav('thenewstack.io'), enabled: true },
 ];

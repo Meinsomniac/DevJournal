@@ -192,13 +192,13 @@ export default function ArticleScreen() {
           const count = await getSetting<number>('articleOpenCount', 0);
           const nextCount = count + 1;
           await setSetting('articleOpenCount', nextCount);
-          if (nextCount % 15 === 0) {
-            if (interstitialRef.current) {
-              interstitialRef.current.show();
-            } else {
-              pendingShowRef.current = true;
-            }
-          }
+          // if (nextCount % 15 === 0) {
+          //   if (interstitialRef.current) {
+          //     interstitialRef.current.show();
+          //   } else {
+          //     pendingShowRef.current = true;
+          //   }
+          // }
         }
       } catch (error) {
         console.error('Failed to load article:', error);
@@ -338,11 +338,11 @@ export default function ArticleScreen() {
         )}
       </ScrollView>
 
-      <View style={{backgroundColor: colors.bgPrimary}}>
+      {/* <View style={{backgroundColor: colors.bgPrimary}}>
         <AdBanner size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER} />
-      </View>
+      </View> */}
 
-      <View style={[styles.footer, { backgroundColor: colors.bgPrimary, paddingBottom: insets.bottom + Spacing.lg }]}>
+      <View style={[styles.footer, { backgroundColor: colors.bgPrimary, paddingBottom: insets.bottom + Spacing.lg }]}>    
         <Pressable
           onPress={handleOpenExternal}
           style={({ pressed }) => [
