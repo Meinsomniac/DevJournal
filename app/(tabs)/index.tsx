@@ -22,6 +22,7 @@ import { getDigestFeed, toggleBookmark, saveArticles, getFilteredArticles,
 getEnabledFeedSources, getNotifiedArticleIds, markArticlesNotified, getArticleCount, markRead, getSetting, setSetting, 
 pruneOldArticles, updateArticleNsfwStatus, updateArticleContent, getArticlesNeedingEnrichment, markArticlesEnrichmentAttempted } from '@/services/db';
 import { fetchAllFeeds, enrichArticles } from '@/services/rssParser';
+import { checkConnectivity, NoInternetError } from '@/utils/connectivity';
 import { classifyImage, isNSFWReady, initNSFWModel } from '@/services/nsfwDetector';
 import { deduplicateByLink } from '@/services/ranking';
 import { sendBreakingNotificationBatch } from '@/services/notifications';
@@ -288,6 +289,7 @@ export default function DigestScreen() {
     setFetching(true);
     const loadingToastId = toast.loading('Fetching latest articles...');
     try {
+      await checkConnectivity();
       const rawArticles = await fetchAllFeeds(skipCache, false);
       await new Promise(r => setTimeout(r, 0)); // yield
       
@@ -337,7 +339,11 @@ export default function DigestScreen() {
     } catch (error) {
       console.error('Failed to fetch news:', error);
       toast.dismiss(loadingToastId);
-      toast.error('Could not fetch feeds. Pull down to try again.');
+      if (error instanceof NoInternetError) {
+        toast.error('No internet connection. Check your network and try again.');
+      } else {
+        toast.error('Could not fetch feeds. Pull down to try again.');
+      }
       setFetching(false);
     }
   }, [fetching, loadData, searchQuery, notifyBreaking]);

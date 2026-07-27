@@ -4,6 +4,7 @@ import { fetchAllFeeds } from './rssParser';
 import { saveArticles, pruneOldArticles, getNotifiedArticleIds, markArticlesNotified, getSetting, setSetting } from './db';
 import { deduplicateByLink } from './ranking';
 import { sendBreakingNotificationBatch } from './notifications';
+import { checkConnectivity } from '@/utils/connectivity';
 
 const BACKGROUND_FETCH_TASK = 'devjournal-background-fetch';
 const NEEDS_FETCH_KEY = 'needsBackgroundFetch';
@@ -21,6 +22,7 @@ TaskManager.defineTask(BACKGROUND_FETCH_TASK, async () => {
   await setSetting(NEEDS_FETCH_KEY, false);
 
   try {
+    await checkConnectivity();
     const articles = await fetchAllFeeds(true);
     if (articles.length === 0) {
       return BackgroundTask.BackgroundTaskResult.Success;

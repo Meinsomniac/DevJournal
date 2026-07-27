@@ -29,6 +29,7 @@ import {
   Shield,
   FileText,
   ExternalLink,
+  Mail,
 } from 'lucide-react-native';
 
 type ThemeMode = 'system' | 'light' | 'dark';
@@ -268,6 +269,13 @@ export default function SettingsScreen() {
             <FileText size={20} color={colors.textSecondary} />
             <Text style={[Typography.bodyMedium, { color: colors.textPrimary, flex: 1 }]}>
               Terms of Service
+            </Text>
+            <ExternalLink size={18} color={colors.textTertiary} />
+          </Pressable>
+          <Pressable style={styles.linkRow} onPress={() => Linking.openURL('mailto:labs.distill@gmail.com')}>
+            <Mail size={20} color={colors.textSecondary} />
+            <Text style={[Typography.bodyMedium, { color: colors.textPrimary, flex: 1 }]}>
+              Contact Us
             </Text>
             <ExternalLink size={18} color={colors.textTertiary} />
           </Pressable>
