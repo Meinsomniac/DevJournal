@@ -285,7 +285,7 @@ export default function SettingsScreen() {
               Version
             </Text>
             <Text style={[Typography.bodyMedium, { color: colors.textSecondary }]}>
-              1.0.0
+              1.0.2
             </Text>
           </View>
         </>
